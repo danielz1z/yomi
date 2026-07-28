@@ -36,6 +36,9 @@ reply, who ties your world together, and what has gone overdue.
 No official API, no bot account, no webhook. Yomi logs in as a secondary device
 on your own account.
 
+Guides: **[What is a LINE MCP server?](https://rikaidev.github.io/yomi/line-mcp/)**
+· **[LINE MCP 是什麼？Yomi、官方 Bot 與桌面自動化的差異](https://rikaidev.github.io/yomi/zh-tw/line-mcp/)**.
+
 ![license](https://img.shields.io/badge/license-MIT-blue) ![runtime](https://img.shields.io/badge/runtime-node%20%7C%20bun-black) ![protocol](https://img.shields.io/badge/MCP-stdio-green) ![npm](https://img.shields.io/badge/npm-@rikaidev%2Fyomi-red)
 
 > **Unofficial.** Yomi is an independent personal project, not affiliated with or
