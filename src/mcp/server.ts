@@ -1,77 +1,16 @@
 /**
- * Yomi MCP server — LINE query + reply surface over stdio.
+ * Yomi MCP server.
  *
- * On startup resumes any persisted LINE session. Exposes forty-one tools:
- * login, login_complete, list_conversations, get_chat_messages,
- * get_message_image, get_message_media, get_unread_digest, get_insight,
- * mark_read,
- * send_message, send_image, send_file, send_audio, send_video,
- * send_location, send_contact, send_sticker, list_stickers, search_stickers,
- * preview_sticker, find_contact, list_contacts, get_group_members,
- * rename_group, invite_member, kick_member, leave_group, create_group,
- * react_message, cancel_reaction, unsend_message, add_friend, block_contact,
- * unblock_contact, accept_invitation, collect_messages, search_messages,
- * exclude_chats, include_chats, list_excluded_chats, get_scope_policy.
- *
- * find_contact/list_contacts/get_group_members expose LINE's raw
- * people/membership data only — no affinity scoring, no interaction-
- * frequency ranking, no relationship-graph computation. That
- * intelligence layer belongs to the host app, not this server.
- *
- * collect_messages/search_messages add cross-conversation search (LINE has
- * no such primitive): collect_messages explicitly fetches and indexes
- * recent messages locally (see ../search/), embedding them for semantic
- * search along the way; search_messages ranks by cosine similarity when
- * vectors exist, falling back to FTS5 keyword search otherwise. No
- * relationship graph, no affinity scoring either way.
- *
- * exclude_chats/include_chats/list_excluded_chats manage a scoping
- * DENYLIST (see ../search/scope.ts): excluded chats are skipped by
- * collect_messages and have their already-indexed data purged, not just
- * filtered at query time. These are local-index operations too, so they
- * work without a live LINE session (list_excluded_chats degrades its name
- * resolution gracefully when there is none).
- *
- * Hard rules:
- *   - `login`/`login_complete` are the only tools callable without a live
- *     session; together they drive the passwordless flow and persist the
- *     result. Two calls are needed only on MCP clients that don't support
- *     elicitation (confirmed empirically for Claude Desktop) — `login`
- *     starts the flow and returns the PIN as a visible tool result instead
- *     of blocking, then `login_complete` finishes it once the human has
- *     acted on their phone; clients with elicitation get the original
- *     single-call flow via `login` alone. `search_messages` also runs
- *     without a live session, reading the local index as-is (with a live
- *     session it also auto-collects a first-time empty index).
- *     `exclude_chats`/`include_chats`/`list_excluded_chats` are local-index
- *     operations and likewise run without a live session.
- *     Every other tool returns a clear error until a session exists.
- *   - Runs a background capture loop (see ../search/capture.ts): on startup
- *     it starts LINE's poll loop and indexes new incoming messages into the
- *     local search index. This is SILENT — SYNC4 sync never sends read
- *     receipts — and denylist-gated. It never sends messages and never
- *     marks anything read. The only read-receipt path is the explicit
- *     mark_read tool and the auto-read that follows a successful
- *     send_message/send_image/send_file (replying implies reading).
- *   - `send_message`/`send_image`/`send_file` perform exactly one real,
- *     E2EE-encrypted send per call — no auto-send, no retry loop, no
- *     background send. Each also best-effort sends a read receipt for that
- *     chat after a successful send (see the `read` field in the response).
- *
- * Tool handler bodies live in the handlers/ folder (one single-responsibility
- * module per domain, re-exported through handlers/index.ts) and the tool
- * schema list lives in tools.ts, to keep this file, the wiring/dispatch
- * surface, under the project's 200-scc-line cap for MCP server files.
+ * `serveStdio` negotiates both the stateless MCP 2026-07-28 era and legacy
+ * initialize-based clients. One factory instance is pinned to the selected
+ * era for the lifetime of the stdio connection.
  */
-
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js'
+  type McpRequestContext,
+  ResourceNotFoundError,
+  Server,
+} from '@modelcontextprotocol/server'
+import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import { isLineAuthInvalidatedError } from '../line/client/index.js'
 import type { Mention } from '../line/core/mention.js'
 import { LineProtocolService } from '../line/core/service.js'
@@ -129,7 +68,6 @@ import {
 } from './handlers/index.js'
 import { getPrivacyPolicyText } from './policy.js'
 import { TOOLS } from './tools.js'
-import { supportsMcpApps } from './ui/capability.js'
 import {
   LOGIN_UI_RESOURCE_CONTENTS,
   LOGIN_UI_RESOURCE_LISTING,
@@ -196,360 +134,370 @@ async function main(): Promise<void> {
     'wants the current exclusion list. Policy follows:\n\n' +
     getPrivacyPolicyText()
 
-  const server = new Server(
-    { name: 'yomi', version: YOMI_VERSION },
-    { capabilities: { tools: {}, resources: {} }, instructions },
-  )
+  const buildServer = ({ era }: McpRequestContext): Server => {
+    const server = new Server(
+      { name: 'yomi', version: YOMI_VERSION },
+      {
+        capabilities: { tools: {}, resources: {} },
+        instructions,
+      },
+    )
 
-  // Ground truth for whether a connected client actually supports
-  // elicitation (needed by the `login` tool) — observe it, don't assume it.
-  server.oninitialized = () => {
-    const capabilities = server.getClientCapabilities()
-    log.info('client.capabilities', {
-      capabilities: JSON.stringify(capabilities ?? null),
+    // Ground truth for whether a connected client actually supports
+    // elicitation (needed by the `login` tool) — observe it, don't assume it.
+    server.oninitialized = () => {
+      const capabilities = server.getClientCapabilities()
+      log.info('client.capabilities', {
+        capabilities: JSON.stringify(capabilities ?? null),
+      })
+    }
+
+    // MCP 2026-07-28 requires list endpoints to be connection-independent.
+    // Older hosts safely ignore the MCP Apps MIME type and `_meta.ui`.
+    server.setRequestHandler('resources/list', async () => {
+      log.info('resources.list', { count: 1 })
+      return { resources: [LOGIN_UI_RESOURCE_LISTING] }
     })
+
+    server.setRequestHandler('resources/read', async (request) => {
+      log.info('resources.read', { uri: request.params.uri })
+      if (request.params.uri !== LOGIN_UI_RESOURCE_URI) {
+        throw new ResourceNotFoundError(request.params.uri)
+      }
+      return { contents: [LOGIN_UI_RESOURCE_CONTENTS] }
+    })
+
+    server.setRequestHandler('tools/list', async () => {
+      return { tools: toolsForClient(TOOLS, true) }
+    })
+
+    server.setRequestHandler('tools/call', async (request) => {
+      const { name, arguments: args } = request.params
+
+      // `login` is the one tool allowed without an existing session — it is
+      // how a session gets created. `search_messages` also runs without a
+      // live session: it reads the local search index (and, when a session
+      // does exist, auto-collects a first-time empty index). exclude_chats/
+      // include_chats/list_excluded_chats are local-index scoping operations
+      // over ../search/scope.ts and likewise need no live client (list's name
+      // resolution just degrades to null without one). Everything else needs
+      // a live client.
+      const noSessionExempt =
+        name === 'login' ||
+        name === 'login_complete' ||
+        name === 'search_messages' ||
+        name === 'exclude_chats' ||
+        name === 'include_chats' ||
+        name === 'list_excluded_chats' ||
+        name === 'get_scope_policy'
+      if (!noSessionExempt) {
+        // Three distinct "no session" stories, and the user gets sent looking in
+        // the wrong place if we conflate them: LINE revoked this device's token
+        // (someone logged in elsewhere), the token merely aged out and the silent
+        // refresh failed (nobody logged in anywhere), or we never logged in at
+        // all. All three recover via `login`; only the explanation differs.
+        if (service.loginRequired) {
+          return service.loginReason === 'expired'
+            ? sessionExpiredError()
+            : sessionRevokedError()
+        }
+        if (!service.client) {
+          return sessionRequiredError()
+        }
+      }
+
+      try {
+        switch (name) {
+          case 'login':
+            return await handleLogin(
+              server,
+              service,
+              (args ?? {}) as { phone?: string; region?: string },
+              server.getClientCapabilities(),
+              era === 'legacy',
+            )
+          case 'login_complete':
+            return await handleLoginComplete()
+          case 'list_conversations':
+            return await handleListConversations(
+              service,
+              (args ?? {}) as { limit?: number },
+            )
+          case 'get_chat_messages':
+            return await handleGetChatMessages(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                count?: number
+                before?: { messageId?: string; deliveredTime?: number }
+              },
+            )
+          case 'get_message_image':
+            return await handleGetMessageImage(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                messageId: string
+                preview?: boolean
+              },
+            )
+          case 'get_message_media':
+            return await handleGetMessageMedia(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                messageId: string
+                preview?: boolean
+              },
+            )
+          case 'get_unread_digest':
+            return await handleGetUnreadDigest(
+              service,
+              (args ?? {}) as { perChat?: number; limit?: number },
+            )
+          case 'get_insight':
+            return await handleGetInsight(
+              service,
+              (args ?? {}) as {
+                chatId?: string
+                sinceHours?: number
+              },
+            )
+          case 'mark_read':
+            return await handleMarkRead(
+              service,
+              (args ?? {}) as { chatId: string; messageId?: string },
+            )
+          case 'send_message':
+            return await handleSendMessage(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                text: string
+                mentions?: Mention[]
+                replyToMessageId?: string
+              },
+            )
+          case 'send_image':
+            return await handleSendImage(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                imagePath?: string
+                imageBase64?: string
+              },
+            )
+          case 'send_file':
+            return await handleSendFile(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                filePath?: string
+                fileBase64?: string
+                fileName?: string
+              },
+            )
+          case 'send_audio':
+            return await handleSendAudio(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                filePath?: string
+                audioBase64?: string
+                fileName?: string
+                durationMs?: number
+              },
+            )
+          case 'send_video':
+            return await handleSendVideo(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                filePath?: string
+                videoBase64?: string
+                fileName?: string
+                durationMs?: number
+              },
+            )
+          case 'send_location':
+            return await handleSendLocation(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                latitude: number
+                longitude: number
+                title?: string
+                address?: string
+              },
+            )
+          case 'send_contact':
+            return await handleSendContact(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                contactMid: string
+                displayName?: string
+              },
+            )
+          case 'send_sticker':
+            return await handleSendSticker(
+              service,
+              (args ?? {}) as {
+                chatId: string
+                stickerId: string
+                packageId: string
+                version?: string
+              },
+            )
+          case 'list_stickers':
+            return await handleListStickers(
+              service,
+              (args ?? {}) as { language?: string },
+            )
+          case 'search_stickers':
+            return await handleSearchStickers(
+              service,
+              (args ?? {}) as {
+                query: string
+                language?: string
+                limit?: number
+              },
+            )
+          case 'preview_sticker':
+            return await handlePreviewSticker(
+              service,
+              (args ?? {}) as {
+                packageId: string
+                stickerId?: string
+                limit?: number
+              },
+            )
+          case 'find_contact':
+            return await handleFindContact(
+              service,
+              (args ?? {}) as { name: string },
+            )
+          case 'list_contacts':
+            return await handleListContacts(service)
+          case 'get_group_members':
+            return await handleGetGroupMembers(
+              service,
+              (args ?? {}) as { chatId: string },
+            )
+          case 'rename_group':
+            return await handleRenameGroup(
+              service,
+              (args ?? {}) as { chatId: string; name: string },
+            )
+          case 'invite_member':
+            return await handleInviteMember(
+              service,
+              (args ?? {}) as { chatId: string; mids: string[] },
+            )
+          case 'kick_member':
+            return await handleKickMember(
+              service,
+              (args ?? {}) as { chatId: string; mids: string[] },
+            )
+          case 'leave_group':
+            return await handleLeaveGroup(
+              service,
+              (args ?? {}) as { chatId: string },
+            )
+          case 'create_group':
+            return await handleCreateGroup(
+              service,
+              (args ?? {}) as {
+                name: string
+                mids: string[]
+                chatType?: number
+              },
+            )
+          case 'react_message':
+            return await handleReactMessage(
+              service,
+              (args ?? {}) as { messageId: string; reactionType?: number },
+            )
+          case 'cancel_reaction':
+            return await handleCancelReaction(
+              service,
+              (args ?? {}) as { messageId: string },
+            )
+          case 'unsend_message':
+            return await handleUnsendMessage(
+              service,
+              (args ?? {}) as { messageId: string; confirm?: boolean },
+            )
+          case 'add_friend':
+            return await handleAddFriend(
+              service,
+              (args ?? {}) as { mid: string },
+            )
+          case 'block_contact':
+            return await handleBlockContact(
+              service,
+              (args ?? {}) as { mid: string },
+            )
+          case 'unblock_contact':
+            return await handleUnblockContact(
+              service,
+              (args ?? {}) as { mid: string },
+            )
+          case 'accept_invitation':
+            return await handleAcceptInvitation(
+              service,
+              (args ?? {}) as { chatId: string },
+            )
+          case 'collect_messages':
+            return await handleCollectMessages(
+              service,
+              (args ?? {}) as { chatIds?: string[]; perChat?: number },
+            )
+          case 'search_messages':
+            return await handleSearchMessages(
+              service,
+              (args ?? {}) as { query: string; limit?: number },
+            )
+          case 'exclude_chats':
+            return await handleExcludeChats(
+              (args ?? {}) as { chatIds?: string[] },
+            )
+          case 'include_chats':
+            return await handleIncludeChats(
+              (args ?? {}) as { chatIds?: string[] },
+            )
+          case 'list_excluded_chats':
+            return await handleListExcludedChats(service)
+          case 'get_scope_policy':
+            return await handleGetScopePolicy(service)
+          default:
+            return toolError(`Unknown tool: ${name}`)
+        }
+      } catch (error: any) {
+        const message = error?.message ?? String(error)
+        // A mid-session LINE token invalidation (e.g. V3_TOKEN_CLIENT_LOGGED_OUT
+        // after a competing login) is not a tool bug — flag the service so
+        // subsequent calls short-circuit at the gate above, and translate the
+        // raw protocol error into an actionable re-login message.
+        if (isLineAuthInvalidatedError(error)) {
+          service.loginRequired = true
+          service.loginReason = 'revoked'
+          log.warn('tool.session_revoked', { error: message, tool: name })
+          return sessionRevokedError(message)
+        }
+        log.error('tool.failed', { error: message, tool: name })
+        return toolError(message)
+      }
+    })
+
+    return server
   }
 
-  // MCP Apps UI resource (the `login` view) is only advertised to clients
-  // that negotiated support for it (see ./ui/capability.ts) — a client
-  // without it must see `resources/list` return empty and `login`'s schema
-  // stay byte-for-byte what it always was.
-  server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const supportsUi = supportsMcpApps(server.getClientCapabilities())
-    const count = supportsUi ? 1 : 0
-    log.info('resources.list', { supportsUi, count })
-    return { resources: supportsUi ? [LOGIN_UI_RESOURCE_LISTING] : [] }
+  serveStdio(buildServer, {
+    legacy: 'serve',
+    onerror: (error) =>
+      log.error('server.protocol_error', { error: error.message }),
   })
-
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    log.info('resources.read', { uri: request.params.uri })
-    if (request.params.uri !== LOGIN_UI_RESOURCE_URI) {
-      throw new Error(`Unknown resource: ${request.params.uri}`)
-    }
-    return { contents: [LOGIN_UI_RESOURCE_CONTENTS] }
-  })
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const supportsUi = supportsMcpApps(server.getClientCapabilities())
-    return { tools: toolsForClient(TOOLS, supportsUi) }
-  })
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params
-
-    // `login` is the one tool allowed without an existing session — it is
-    // how a session gets created. `search_messages` also runs without a
-    // live session: it reads the local search index (and, when a session
-    // does exist, auto-collects a first-time empty index). exclude_chats/
-    // include_chats/list_excluded_chats are local-index scoping operations
-    // over ../search/scope.ts and likewise need no live client (list's name
-    // resolution just degrades to null without one). Everything else needs
-    // a live client.
-    const noSessionExempt =
-      name === 'login' ||
-      name === 'login_complete' ||
-      name === 'search_messages' ||
-      name === 'exclude_chats' ||
-      name === 'include_chats' ||
-      name === 'list_excluded_chats' ||
-      name === 'get_scope_policy'
-    if (!noSessionExempt) {
-      // Three distinct "no session" stories, and the user gets sent looking in
-      // the wrong place if we conflate them: LINE revoked this device's token
-      // (someone logged in elsewhere), the token merely aged out and the silent
-      // refresh failed (nobody logged in anywhere), or we never logged in at
-      // all. All three recover via `login`; only the explanation differs.
-      if (service.loginRequired) {
-        return service.loginReason === 'expired'
-          ? sessionExpiredError()
-          : sessionRevokedError()
-      }
-      if (!service.client) {
-        return sessionRequiredError()
-      }
-    }
-
-    try {
-      switch (name) {
-        case 'login':
-          return await handleLogin(
-            server,
-            service,
-            (args ?? {}) as { phone?: string; region?: string },
-          )
-        case 'login_complete':
-          return await handleLoginComplete()
-        case 'list_conversations':
-          return await handleListConversations(
-            service,
-            (args ?? {}) as { limit?: number },
-          )
-        case 'get_chat_messages':
-          return await handleGetChatMessages(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              count?: number
-              before?: { messageId?: string; deliveredTime?: number }
-            },
-          )
-        case 'get_message_image':
-          return await handleGetMessageImage(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              messageId: string
-              preview?: boolean
-            },
-          )
-        case 'get_message_media':
-          return await handleGetMessageMedia(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              messageId: string
-              preview?: boolean
-            },
-          )
-        case 'get_unread_digest':
-          return await handleGetUnreadDigest(
-            service,
-            (args ?? {}) as { perChat?: number; limit?: number },
-          )
-        case 'get_insight':
-          return await handleGetInsight(
-            service,
-            (args ?? {}) as {
-              chatId?: string
-              sinceHours?: number
-            },
-          )
-        case 'mark_read':
-          return await handleMarkRead(
-            service,
-            (args ?? {}) as { chatId: string; messageId?: string },
-          )
-        case 'send_message':
-          return await handleSendMessage(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              text: string
-              mentions?: Mention[]
-              replyToMessageId?: string
-            },
-          )
-        case 'send_image':
-          return await handleSendImage(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              imagePath?: string
-              imageBase64?: string
-            },
-          )
-        case 'send_file':
-          return await handleSendFile(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              filePath?: string
-              fileBase64?: string
-              fileName?: string
-            },
-          )
-        case 'send_audio':
-          return await handleSendAudio(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              filePath?: string
-              audioBase64?: string
-              fileName?: string
-              durationMs?: number
-            },
-          )
-        case 'send_video':
-          return await handleSendVideo(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              filePath?: string
-              videoBase64?: string
-              fileName?: string
-              durationMs?: number
-            },
-          )
-        case 'send_location':
-          return await handleSendLocation(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              latitude: number
-              longitude: number
-              title?: string
-              address?: string
-            },
-          )
-        case 'send_contact':
-          return await handleSendContact(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              contactMid: string
-              displayName?: string
-            },
-          )
-        case 'send_sticker':
-          return await handleSendSticker(
-            service,
-            (args ?? {}) as {
-              chatId: string
-              stickerId: string
-              packageId: string
-              version?: string
-            },
-          )
-        case 'list_stickers':
-          return await handleListStickers(
-            service,
-            (args ?? {}) as { language?: string },
-          )
-        case 'search_stickers':
-          return await handleSearchStickers(
-            service,
-            (args ?? {}) as {
-              query: string
-              language?: string
-              limit?: number
-            },
-          )
-        case 'preview_sticker':
-          return await handlePreviewSticker(
-            service,
-            (args ?? {}) as {
-              packageId: string
-              stickerId?: string
-              limit?: number
-            },
-          )
-        case 'find_contact':
-          return await handleFindContact(
-            service,
-            (args ?? {}) as { name: string },
-          )
-        case 'list_contacts':
-          return await handleListContacts(service)
-        case 'get_group_members':
-          return await handleGetGroupMembers(
-            service,
-            (args ?? {}) as { chatId: string },
-          )
-        case 'rename_group':
-          return await handleRenameGroup(
-            service,
-            (args ?? {}) as { chatId: string; name: string },
-          )
-        case 'invite_member':
-          return await handleInviteMember(
-            service,
-            (args ?? {}) as { chatId: string; mids: string[] },
-          )
-        case 'kick_member':
-          return await handleKickMember(
-            service,
-            (args ?? {}) as { chatId: string; mids: string[] },
-          )
-        case 'leave_group':
-          return await handleLeaveGroup(
-            service,
-            (args ?? {}) as { chatId: string },
-          )
-        case 'create_group':
-          return await handleCreateGroup(
-            service,
-            (args ?? {}) as {
-              name: string
-              mids: string[]
-              chatType?: number
-            },
-          )
-        case 'react_message':
-          return await handleReactMessage(
-            service,
-            (args ?? {}) as { messageId: string; reactionType?: number },
-          )
-        case 'cancel_reaction':
-          return await handleCancelReaction(
-            service,
-            (args ?? {}) as { messageId: string },
-          )
-        case 'unsend_message':
-          return await handleUnsendMessage(
-            service,
-            (args ?? {}) as { messageId: string; confirm?: boolean },
-          )
-        case 'add_friend':
-          return await handleAddFriend(service, (args ?? {}) as { mid: string })
-        case 'block_contact':
-          return await handleBlockContact(
-            service,
-            (args ?? {}) as { mid: string },
-          )
-        case 'unblock_contact':
-          return await handleUnblockContact(
-            service,
-            (args ?? {}) as { mid: string },
-          )
-        case 'accept_invitation':
-          return await handleAcceptInvitation(
-            service,
-            (args ?? {}) as { chatId: string },
-          )
-        case 'collect_messages':
-          return await handleCollectMessages(
-            service,
-            (args ?? {}) as { chatIds?: string[]; perChat?: number },
-          )
-        case 'search_messages':
-          return await handleSearchMessages(
-            service,
-            (args ?? {}) as { query: string; limit?: number },
-          )
-        case 'exclude_chats':
-          return await handleExcludeChats(
-            (args ?? {}) as { chatIds?: string[] },
-          )
-        case 'include_chats':
-          return await handleIncludeChats(
-            (args ?? {}) as { chatIds?: string[] },
-          )
-        case 'list_excluded_chats':
-          return await handleListExcludedChats(service)
-        case 'get_scope_policy':
-          return await handleGetScopePolicy(service)
-        default:
-          return toolError(`Unknown tool: ${name}`)
-      }
-    } catch (error: any) {
-      const message = error?.message ?? String(error)
-      // A mid-session LINE token invalidation (e.g. V3_TOKEN_CLIENT_LOGGED_OUT
-      // after a competing login) is not a tool bug — flag the service so
-      // subsequent calls short-circuit at the gate above, and translate the
-      // raw protocol error into an actionable re-login message.
-      if (isLineAuthInvalidatedError(error)) {
-        service.loginRequired = true
-        service.loginReason = 'revoked'
-        log.warn('tool.session_revoked', { error: message, tool: name })
-        return sessionRevokedError(message)
-      }
-      log.error('tool.failed', { error: message, tool: name })
-      return toolError(message)
-    }
-  })
-
-  const transport = new StdioServerTransport()
-  await server.connect(transport)
   log.info('server.started', { tools: TOOLS.length })
 }
 

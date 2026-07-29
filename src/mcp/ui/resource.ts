@@ -1,9 +1,9 @@
 /**
  * The single MCP Apps UI resource this server exposes: the login view.
  * Registered by ../server.ts's `resources/list` and `resources/read`
- * handlers, gated on client capability (see ./capability.ts) so a client
- * without MCP Apps support sees an empty resource list, unchanged from
- * before this feature existed.
+ * handlers. MCP 2026-07-28 requires list results to be independent of a
+ * connection, so this resource is always advertised; hosts without MCP Apps
+ * support safely ignore the MIME type and `_meta.ui`.
  *
  * The `csp` key within `_meta.ui` is deliberately omitted: the login view
  * makes no outbound connections and loads nothing external, so the host's

@@ -48,9 +48,12 @@ missed edit *after* the package is public.
   `package.json` drift guard (`src/version.test.ts`);
 - **build emits** — `tsc` compiles *and writes* `dist/`, which is what the
   tarball ships;
-- **the tarball actually starts** — `npm pack`, install it into a clean
-  project, then start it as a real MCP stdio server and complete an
-  `initialize` handshake (`scripts/smoke-mcp.mjs`).
+- **the tarball actually starts in both protocol eras** — `npm pack`, install
+  it into a clean project, then use the stable MCP v2 client to pin a
+  stateless `2026-07-28` connection and separately complete a legacy
+  `initialize` connection. Both probes list all 41 tools and call
+  `get_scope_policy`; the modern probe also audits the connection-independent
+  MCP Apps tool metadata and UI resource (`scripts/smoke-mcp.mjs`).
 
 Any mismatch fails the workflow and **nothing is published**. Publishing itself
 is credential-free via npm OIDC Trusted Publishing (no token), with a provenance

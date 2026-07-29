@@ -23,8 +23,7 @@
  * Both paths call the ONE shared login sequence in ../cli/login.ts
  * (`runPwlessLogin`) — neither duplicates it.
  */
-
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import type { ClientCapabilities, Server } from '@modelcontextprotocol/server'
 import type { PwlessLoginResult } from '../../cli/login.js'
 import { runPwlessLogin } from '../../cli/login.js'
 import {
@@ -524,15 +523,13 @@ export async function handleLogin(
   server: Server,
   service: LineProtocolService,
   args: { phone?: string; region?: string },
+  capabilities: ClientCapabilities | undefined = server.getClientCapabilities(),
+  allowPushElicitation = true,
 ) {
-  if (server.getClientCapabilities()?.elicitation) {
+  if (allowPushElicitation && capabilities?.elicitation) {
     return handleLoginElicitation(server, service, args)
   }
-  return handleLoginNoElicitation(
-    service,
-    args,
-    supportsMcpApps(server.getClientCapabilities()),
-  )
+  return handleLoginNoElicitation(service, args, supportsMcpApps(capabilities))
 }
 
 /**

@@ -10,8 +10,9 @@
  * position 0 on every request, so trimming boilerplate here directly lowers
  * the fixed per-request token cost every connected client pays.
  */
+import type { Tool } from '@modelcontextprotocol/server'
 
-export const TOOLS = [
+export const TOOLS: Tool[] = [
   {
     description:
       'Log in to LINE via the passwordless secondary-device flow. Requires 允許自其他裝置登入 enabled on the primary phone. On MCP clients with elicitation, this call prompts for phone/region and PIN and completes login by itself. On clients without it (e.g. Claude Desktop), phone/region come from the arguments or a persisted login, and this returns as soon as LINE issues the PIN (or reports none needed) — then call login_complete IMMEDIATELY (do not wait for the human). LINE gives ~3 minutes from PIN display to confirm on the phone; login_complete blocks past that, so calling it late only wastes that window.',

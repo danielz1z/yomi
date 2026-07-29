@@ -1,9 +1,8 @@
 /**
  * Attaches the MCP Apps `_meta.ui` linkage to the `login` tool definition,
- * but only for clients that negotiated MCP Apps support (see
- * ./capability.ts) — on a client without it, the tool list served must stay
- * byte-for-byte what it always was. Kept separate from ../tools.ts (a flat,
- * static schema registry) because this step is per-connection, not static.
+ * when requested by the caller. The MCP 2026-07-28 server always requests it
+ * because list results may not vary by connection; the conditional remains
+ * useful to callers that serialize the legacy plain registry directly.
  */
 import { LOGIN_UI_RESOURCE_URI } from './resource.js'
 

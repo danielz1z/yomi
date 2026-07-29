@@ -1,39 +1,15 @@
 #!/usr/bin/env node
 /**
- * Install-smoke: start the packaged Yomi as a real MCP stdio server, complete an
- * `initialize` handshake, and then actually CALL A TOOL that touches the local
- * index.
+ * Installed-artifact MCP smoke test.
  *
- * Run against an INSTALLED tarball (node_modules), never the repo checkout —
- * the two behave differently, and only the installed shape is what users get.
- *
- * Why it calls a tool, and not just `initialize`:
- *
- * Every 0.1.x release shipped TypeScript sources and died on startup with
- * ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING. CI missed it because it
- * smoke-tested `--help`, the one command that prints a literal string without
- * importing anything. So the gate was deepened to `initialize`.
- *
- * `initialize` then became the new `--help`. It answers from the server shell
- * without touching application code, so v0.1.0–v0.2.1 all shipped green while
- * every index-backed tool (search_messages, get_scope_policy,
- * list_excluded_chats, exclude_chats, include_chats) threw
- * "require is not defined" the moment a user called one: src/search/sqlite.ts
- * used a bare `require` to pick bun:sqlite vs node:sqlite, which bun tolerates
- * in ESM and node does not. Nothing in CI could see it — the test suite runs on
- * bun, and the one node-based check stopped at the handshake.
- *
- * The lesson keeps being the same one: a check that never reaches application
- * code proves nothing about the artifact. Keep this gate calling a real tool,
- * on node, against the installed tarball.
- *
- * get_scope_policy is the tool of choice because it needs no LINE session (it is
- * on the server's no-session-exempt list) but does open the SQLite index.
- *
- * Usage: node smoke-mcp.mjs <path-to-run.mjs>
+ * Starts the packaged server twice: once pinned to the stateless 2026-07-28
+ * protocol and once through the legacy initialize flow. Each connection lists
+ * every tool and calls get_scope_policy so the probe reaches Yomi application
+ * code and its SQLite boundary, not merely the SDK shell.
  */
 
-import { spawn } from 'node:child_process'
+import { Client } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,119 +20,137 @@ if (!entry) {
   process.exit(2)
 }
 
-// Point the index at a throwaway db so the probe is deterministic and never
-// touches a real one.
 const dbPath = join(mkdtempSync(join(tmpdir(), 'yomi-smoke-')), 'index.db')
 
-const child = spawn(process.execPath, [entry, 'serve'], {
-  stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, YOMI_INDEX_DB_PATH: dbPath },
-})
+/**
+ * Verify one protocol era against a fresh packaged-server process.
+ *
+ * @param {'modern' | 'legacy'} expectedEra
+ * @param {boolean} supportsApps
+ */
+async function verifyEra(expectedEra, supportsApps = false) {
+  const client = new Client(
+    {
+      name: `install-smoke-${expectedEra}${supportsApps ? '-apps' : ''}`,
+      version: '0',
+    },
+    {
+      capabilities: supportsApps
+        ? {
+            extensions: {
+              'io.modelcontextprotocol/ui': {
+                mimeTypes: ['text/html;profile=mcp-app'],
+              },
+            },
+          }
+        : {},
+      versionNegotiation:
+        expectedEra === 'modern'
+          ? { mode: { pin: '2026-07-28' } }
+          : { mode: 'legacy' },
+    },
+  )
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [entry, 'serve'],
+    env: { ...process.env, YOMI_INDEX_DB_PATH: dbPath },
+    stderr: 'pipe',
+  })
+  let stderr = ''
+  transport.stderr?.on('data', (chunk) => {
+    stderr += chunk
+  })
 
-let stdout = ''
-let stderr = ''
-let pending = ''
-let answeredInitialize = false
+  try {
+    await client.connect(transport)
+    const actualEra = client.getProtocolEra()
+    if (actualEra !== expectedEra) {
+      throw new Error(`negotiated ${actualEra}; expected ${expectedEra}`)
+    }
 
-const timer = setTimeout(() => fail('timed out after 30s'), 30_000)
+    const toolList = await client.listTools()
+    const { tools } = toolList
+    if (tools.length !== 41) {
+      throw new Error(`tools/list returned ${tools.length} tools; expected 41`)
+    }
+    if (new Set(tools.map((tool) => tool.name)).size !== tools.length) {
+      throw new Error('tools/list returned duplicate tool names')
+    }
+    if (
+      expectedEra === 'modern' &&
+      (toolList.ttlMs !== 0 || toolList.cacheScope !== 'private')
+    ) {
+      throw new Error(
+        `modern tools/list cache fields are invalid: ${JSON.stringify(toolList)}`,
+      )
+    }
+    const invalidTool = tools.find(
+      (tool) =>
+        !tool.name ||
+        tool.inputSchema?.type !== 'object' ||
+        !tool.inputSchema.properties,
+    )
+    if (invalidTool) {
+      throw new Error(`invalid tool schema: ${JSON.stringify(invalidTool)}`)
+    }
 
-/** Print diagnostics and exit non-zero. */
-function fail(reason) {
-  clearTimeout(timer)
-  child.kill()
-  console.error(`FAIL: ${reason}`)
-  if (stdout) console.error(`--- stdout ---\n${stdout}`)
-  if (stderr) console.error(`--- stderr ---\n${stderr}`)
+    const loginTool = tools.find((tool) => tool.name === 'login')
+    const resources = await client.listResources()
+    if (resources.resources.length !== 1) {
+      throw new Error(
+        `resources/list returned ${resources.resources.length}; expected 1`,
+      )
+    }
+    if (loginTool?._meta?.ui?.resourceUri !== 'ui://yomi/login') {
+      throw new Error('login tool is missing its MCP Apps resource link')
+    }
+    const resource = await client.readResource({ uri: 'ui://yomi/login' })
+    const html = resource.contents[0]
+    if (
+      html?.mimeType !== 'text/html;profile=mcp-app' ||
+      !('text' in html) ||
+      !html.text.includes('ui/initialize')
+    ) {
+      throw new Error(`invalid MCP Apps resource: ${JSON.stringify(html)}`)
+    }
+    try {
+      await client.readResource({ uri: 'ui://yomi/not-found' })
+      throw new Error('unknown resources/read unexpectedly succeeded')
+    } catch (error) {
+      if (error.code !== -32602) {
+        throw new Error(
+          `unknown resource returned ${error.code}; expected -32602`,
+        )
+      }
+    }
+
+    const result = await client.callTool({
+      name: 'get_scope_policy',
+      arguments: {},
+    })
+    const text = result.content?.find((block) => block.type === 'text')?.text
+    if (result.isError || !text) {
+      throw new Error(
+        `get_scope_policy failed: ${JSON.stringify(result)}`,
+      )
+    }
+    return `${expectedEra}${supportsApps ? '+apps' : ''} ${tools.length} tools / ${text.length} policy bytes`
+  } catch (error) {
+    const detail = stderr ? `\n--- server stderr ---\n${stderr}` : ''
+    throw new Error(`${expectedEra} smoke failed: ${error.message}${detail}`, {
+      cause: error,
+    })
+  } finally {
+    await client.close().catch(() => {})
+  }
+}
+
+try {
+  const modern = await verifyEra('modern')
+  const modernApps = await verifyEra('modern', true)
+  const legacy = await verifyEra('legacy')
+  console.log(`OK: ${modern}; ${modernApps}; ${legacy}`)
+} catch (error) {
+  console.error(`FAIL: ${error.message}`)
   process.exit(1)
 }
-
-/** Print success and exit zero. */
-function pass(message) {
-  clearTimeout(timer)
-  child.kill()
-  console.log(`OK: ${message}`)
-  process.exit(0)
-}
-
-/** Write one JSON-RPC message to the server's stdin. */
-function send(message) {
-  child.stdin.write(`${JSON.stringify(message)}\n`)
-}
-
-child.on('error', (error) => fail(`could not spawn server: ${error.message}`))
-
-// A server that dies before answering (the 0.1.x failure mode) lands here.
-child.on('exit', (code) => {
-  if (!answeredInitialize) {
-    fail(`server exited (code ${code}) without answering initialize`)
-  }
-})
-
-child.stderr.on('data', (chunk) => {
-  stderr += chunk
-})
-
-child.stdout.on('data', (chunk) => {
-  stdout += chunk
-  pending += chunk
-  const lines = pending.split('\n')
-  pending = lines.pop() ?? ''
-  for (const line of lines) {
-    if (!line.trim().startsWith('{')) continue
-    let response
-    try {
-      response = JSON.parse(line)
-    } catch {
-      continue
-    }
-    handle(response)
-  }
-})
-
-/**
- * Advance the probe as each JSON-RPC response arrives.
- *
- * @param response - One parsed JSON-RPC message from the server.
- */
-function handle(response) {
-  if (response.id === 1) {
-    const info = response?.result?.serverInfo
-    if (!info) fail(`initialize returned no serverInfo: ${JSON.stringify(response)}`)
-    answeredInitialize = true
-    send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })
-    send({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'tools/call',
-      params: { name: 'get_scope_policy', arguments: {} },
-    })
-    return
-  }
-
-  if (response.id === 2) {
-    if (response.error) {
-      fail(`get_scope_policy failed at the protocol level: ${JSON.stringify(response.error)}`)
-    }
-    const text = response?.result?.content?.[0]?.text ?? ''
-    // isError means the tool ran but reported failure — which is exactly how the
-    // bare-require bug surfaced to users, so it must fail the gate.
-    if (response?.result?.isError) {
-      fail(`get_scope_policy returned an error result: ${text}`)
-    }
-    if (!text) {
-      fail(`get_scope_policy returned no content: ${JSON.stringify(response)}`)
-    }
-    pass(`server answered initialize and get_scope_policy returned ${text.length} bytes`)
-  }
-}
-
-send({
-  jsonrpc: '2.0',
-  id: 1,
-  method: 'initialize',
-  params: {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: { name: 'install-smoke', version: '0' },
-  },
-})

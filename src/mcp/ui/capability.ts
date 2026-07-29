@@ -14,7 +14,7 @@
  * `'mimeTypes' in value`, `value` narrows to `object & Record<'mimeTypes',
  * unknown>`, so `value.mimeTypes` is accessible as `unknown`.
  */
-import type { ClientCapabilities } from '@modelcontextprotocol/sdk/types.js'
+import type { ClientCapabilities } from '@modelcontextprotocol/server'
 
 /** The MCP Apps UI mime type the host must declare support for. */
 export const MCP_APPS_MIME_TYPE = 'text/html;profile=mcp-app'
