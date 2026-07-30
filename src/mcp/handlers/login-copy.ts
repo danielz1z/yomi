@@ -42,7 +42,7 @@ export const PRIMARY_DEVICE_SETTING_PATH =
  * The prerequisite as a single line, for texts that report on a login
  * already in flight (the PIN and cert steps) rather than gating one.
  */
-export const PRIMARY_DEVICE_SETTING_NOTE =
+const PRIMARY_DEVICE_SETTING_NOTE =
   `0. This only works if the primary phone has ${PRIMARY_DEVICE_SETTING_PATH} ` +
   '(Settings > Account > allow logging in from other devices; the label is ' +
   'localized) enabled — without it LINE will not offer this device a sign-in ' +
@@ -52,7 +52,7 @@ export const PRIMARY_DEVICE_SETTING_NOTE =
  * Step-by-step instructions for turning the setting on, returned when the
  * human says it is off or that they do not know where it is.
  */
-export const PRIMARY_DEVICE_SETTING_STEPS =
+const PRIMARY_DEVICE_SETTING_STEPS =
   'On the PRIMARY phone (the one already logged in to this LINE account):\n\n' +
   '1. Open LINE and go to the 主頁 / Home tab.\n' +
   '2. Tap the gear icon in the top corner to open 設定 (Settings).\n' +
@@ -64,7 +64,7 @@ export const PRIMARY_DEVICE_SETTING_STEPS =
   'completes.'
 
 /** Answers offered by the pre-flight prerequisite check. */
-export const PREREQ_ANSWERS = {
+const PREREQ_ANSWERS = {
   enabled: 'enabled',
   notEnabled: 'not_enabled',
   unsure: 'unsure',

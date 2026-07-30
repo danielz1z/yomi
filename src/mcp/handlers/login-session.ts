@@ -30,7 +30,7 @@ const log = createCliLogger('Yomi')
  * only thing that actually kills a pending login early is LINE's own code
  * expiring, so that is the correct bound for "is this still worth reusing".
  */
-export const PIN_WINDOW_MS = LINE_PIN_CODE_LIFETIME_MS
+const PIN_WINDOW_MS = LINE_PIN_CODE_LIFETIME_MS
 
 /** How long a `login` call waits for LINE to issue a PIN before giving up. */
 export const PIN_WAIT_TIMEOUT_MS = 20000
