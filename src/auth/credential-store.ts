@@ -16,6 +16,15 @@
  * KeychainService service name: see keychain.ts — writes go to Yomi's own
  * canonical namespace; a legacy namespace from before this split is read
  * as a fallback and migrated forward, never written to or deleted.
+ *
+ * The Keychain is machine-global: it is NOT scoped by YOMI_DATA_DIR, so on
+ * macOS an automated run that only redirected the data dir would still find —
+ * and act on — the developer's real LINE session (a stored login certificate
+ * is enough for `login` to start a device sign-in against the live account).
+ * `YOMI_NO_KEYCHAIN=1` forces the file backend so tests and smoke runs are
+ * genuinely isolated by pointing YOMI_DATA_DIR somewhere disposable. It is a
+ * testing escape hatch: setting it in normal use downgrades credential
+ * storage from the Keychain to a plain JSON file.
  */
 
 import { dirname, join } from 'node:path'
@@ -202,7 +211,8 @@ export class CredentialStore {
     this.filePath = fallbackFilePath
     this.cache = new Map()
     this.loaded = false
-    this.secureStorageEnabled = process.platform === 'darwin'
+    this.secureStorageEnabled =
+      process.platform === 'darwin' && process.env.YOMI_NO_KEYCHAIN !== '1'
     this.keychainService = this.secureStorageEnabled
       ? getKeychainService()
       : null

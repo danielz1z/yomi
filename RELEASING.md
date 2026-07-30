@@ -53,7 +53,14 @@ missed edit *after* the package is public.
   stateless `2026-07-28` connection and separately complete a legacy
   `initialize` connection. Both probes list all 41 tools and call
   `get_scope_policy`; the modern probe also audits the connection-independent
-  MCP Apps tool metadata and UI resource (`scripts/smoke-mcp.mjs`).
+  MCP Apps tool metadata and UI resource. A fourth probe drives the
+  2026-07-28 multi-round-trip `login` flow — it answers the pre-flight
+  elicitation with "the second-device setting is off" and asserts the server
+  returns the enabling steps instead of starting a login. Every probe runs
+  with `YOMI_DATA_DIR` redirected AND `YOMI_NO_KEYCHAIN=1`: the macOS Keychain
+  is machine-global, so without the second one the probes would run against
+  the real LINE session on the machine and `login` could act on a live
+  account (`scripts/smoke-mcp.mjs`).
 
 Any mismatch fails the workflow and **nothing is published**. Publishing itself
 is credential-free via npm OIDC Trusted Publishing (no token), with a provenance

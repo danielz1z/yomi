@@ -6,25 +6,32 @@
  * owned here is otherwise unchanged in spirit from what previously lived
  * inline there.
  *
- * Two login paths exist, dispatched by client capability:
+ * THREE login paths exist, dispatched by protocol era and client capability
+ * (see `handleLogin`), all sharing one login sequence (`runPwlessLogin` in
+ * ../../cli/login.ts) and one set of human-facing texts (./login-copy.ts):
  *
- *   - Elicitation clients: the original single-call flow — elicit phone/
- *     region, elicit PIN acknowledgement, block to completion. Unchanged.
+ *   - Legacy era + form elicitation: the original single-call flow — the
+ *     server PUSHES `elicitation/create` requests at the client, so one tool
+ *     call can drive pre-flight, PIN and completion end to end.
  *
- *   - Non-elicitation clients (e.g. Claude Desktop, confirmed empirically —
- *     it does not support MCP elicitation): the PIN has nowhere to go if we
- *     block, since it is produced mid-flow and stderr is invisible to the
- *     human, but a tool RESULT is visible. So the flow is split across two
- *     tool calls: `login` starts the passwordless flow and returns the PIN
- *     as soon as LINE issues it (bounded wait), then `login_complete`
- *     awaits the same in-flight login to finish once the human has acted
- *     on their phone.
+ *   - Modern era (2026-07-28) + form elicitation: ./login-mrtr.ts. That
+ *     revision has NO server→client request channel, so the same
+ *     conversation happens as multi-round-trip `input_required` results the
+ *     client answers by re-calling `login`.
  *
- * Both paths call the ONE shared login sequence in ../cli/login.ts
- * (`runPwlessLogin`) — neither duplicates it.
+ *   - Neither (e.g. Claude Desktop, confirmed empirically — it does not
+ *     support MCP elicitation): the PIN has nowhere to go if we block, since
+ *     it is produced mid-flow and stderr is invisible to the human, but a
+ *     tool RESULT is visible. So the flow is split across two tool calls:
+ *     `login` starts the passwordless flow and returns the PIN as soon as
+ *     LINE issues it (bounded wait), then `login_complete` awaits the same
+ *     in-flight login to finish once the human has acted on their phone.
  */
-import type { ClientCapabilities, Server } from '@modelcontextprotocol/server'
-import type { PwlessLoginResult } from '../../cli/login.js'
+import type {
+  ClientCapabilities,
+  ProtocolEra,
+  Server,
+} from '@modelcontextprotocol/server'
 import { runPwlessLogin } from '../../cli/login.js'
 import {
   LINE_PIN_CODE_LIFETIME_MS,
@@ -33,91 +40,44 @@ import {
 } from '../../line/auth/pwless/index.js'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { createCliLogger } from '../../util/log.js'
+import { supportsFormElicitation } from '../client-capabilities.js'
 import { supportsMcpApps } from '../ui/capability.js'
 import type { LoginStructuredContent } from '../ui/login-structured-content.js'
+import {
+  buildAcknowledgementForm,
+  buildPreflightForm,
+  certSteps,
+  LOGIN_REGIONS,
+  PRIMARY_DEVICE_SETTING_PATH,
+  pinSteps,
+  prerequisiteNotMetResult,
+  readPreflightForm,
+} from './login-copy.js'
+import { handleLoginMrtr } from './login-mrtr.js'
+import {
+  finishPendingLogin,
+  getLivePendingLogin,
+  getPendingLogin,
+  PIN_WAIT_TIMEOUT_MS,
+  startPendingLogin,
+  waitForPin,
+} from './login-session.js'
 import { jsonText, toolError } from './shared.js'
 
 const log = createCliLogger('Yomi')
 
-/** LINE region codes offered on the login elicitation form. */
-const LOGIN_REGIONS = ['TW', 'JP', 'TH', 'ID', 'US']
-
-/**
- * How long a live `pendingLogin` may be reused by a later `login` call for
- * the same phone/region, before treating it as stale and starting fresh.
- *
- * This is bound to LINE's real PIN code lifetime (~line/auth/pwless/index.ts,
- * an external fact from LINE Help Center, ~3 minutes) — NOT to how long
- * yomi's client is willing to keep polling (~16 minutes). A login started
- * 90 seconds ago is still very much alive and its PIN is still valid; the
- * only thing that actually kills a pending login early is LINE's own code
- * expiring, so that is the correct bound for "is this still worth reusing".
- */
-const PIN_WINDOW_MS = LINE_PIN_CODE_LIFETIME_MS
-
 /**
  * How long yomi's client keeps polling for the device-approval step once a
  * PIN has been verified (or skipped via a stored certificate) — the real
- * ceiling `login_complete` blocks for, used only to describe that wait to
+ * ceiling the completing call blocks for, used only to describe that wait to
  * the human, not to bound anything server-side.
  */
 const APPROVAL_WINDOW_MS = PAAK_AUTH_CLIENT_CEILING_MS
 
-/** How long `login` waits for LINE to issue a PIN before reporting a failure. */
-const PIN_WAIT_TIMEOUT_MS = 20000
-
-/**
- * Elicit `phone`/`region` from the human in one form, pre-filling whatever
- * the caller already supplied.
- *
- * @param server - MCP Server instance (elicitation already capability-gated
- * by the caller).
- * @param phone - Phone already supplied by the tool call, if any.
- * @param region - Region already supplied by the tool call, if any.
- * @returns The collected phone/region, or `null` if the human declined/cancelled.
- */
-async function elicitPhoneRegion(
-  server: Server,
-  phone: string | undefined,
-  region: string | undefined,
-): Promise<{ phone: string; region: string } | null> {
-  const collected = await server.elicitInput({
-    message:
-      'Yomi needs your LINE phone number and region to start passwordless login.',
-    requestedSchema: {
-      type: 'object',
-      properties: {
-        phone: {
-          type: 'string',
-          title: 'Phone number',
-          description: 'E.164 form, e.g. +8869XXXXXXXX.',
-          ...(phone ? { default: phone } : {}),
-        },
-        region: {
-          type: 'string',
-          title: 'Region',
-          enum: LOGIN_REGIONS,
-          ...(region ? { default: region } : {}),
-        },
-      },
-      required: ['phone', 'region'],
-    },
-  })
-  if (collected.action !== 'accept') {
-    return null
-  }
-  const collectedPhone = String(collected.content?.phone ?? '')
-  const collectedRegion = String(collected.content?.region ?? '')
-  if (!collectedPhone || !collectedRegion) {
-    return null
-  }
-  return { phone: collectedPhone, region: collectedRegion }
-}
-
 /**
  * Elicit acknowledgement of the login PIN — fire-and-forget from the
- * caller's perspective (must not block `startPwlessLogin`, which is
- * already running concurrently and waiting on phone biometric approval).
+ * caller's perspective (must not block `runPwlessLogin`, which is already
+ * running concurrently and waiting on phone biometric approval).
  *
  * @param server - MCP Server instance.
  * @param pin - The PIN LINE just issued.
@@ -131,20 +91,7 @@ function elicitPinAcknowledgement(
   onDeclined: () => void,
 ): void {
   server
-    .elicitInput({
-      message:
-        `LINE PIN: ${pin}\n\nEnter this PIN in the LINE app on your primary phone, then approve ` +
-        'the new device from there. Acknowledge below once you have done this.',
-      requestedSchema: {
-        type: 'object',
-        properties: {
-          entered: {
-            type: 'boolean',
-            title: 'I entered the PIN and approved the device on my phone',
-          },
-        },
-      },
-    })
+    .elicitInput(buildAcknowledgementForm(pin))
     .then((result) => {
       if (result.action !== 'accept') {
         onDeclined()
@@ -158,12 +105,13 @@ function elicitPinAcknowledgement(
 }
 
 /**
- * Handle `login` for a client that supports MCP elicitation — drive the
- * passwordless flow entirely through elicitation, with no out-of-band
- * channel required. Phone/region are elicited when missing, and the PIN is
+ * Handle `login` on a LEGACY-era connection whose client supports form
+ * elicitation — drive the passwordless flow entirely through pushed
+ * elicitation requests, with no out-of-band channel required. A pre-flight
+ * form confirms the 允許自其他裝置登入 prerequisite (and collects
+ * phone/region when missing) BEFORE any PIN is issued; the PIN is then
  * surfaced through a second elicitation fired without blocking
- * `startPwlessLogin`, which keeps running while the human acts on their
- * phone. See ../cli/login.ts for the shared login sequence.
+ * `runPwlessLogin`, which keeps running while the human acts on their phone.
  *
  * @param server - MCP Server instance (for elicitInput).
  * @param service - LineProtocolService (not yet authenticated).
@@ -175,14 +123,25 @@ async function handleLoginElicitation(
   service: LineProtocolService,
   args: { phone?: string; region?: string },
 ) {
-  let { phone, region } = args
-  if (!phone || !region) {
-    const collected = await elicitPhoneRegion(server, phone, region)
-    if (!collected) {
-      return toolError('Login was cancelled by the user.')
-    }
-    ;({ phone, region } = collected)
+  const collected = await server.elicitInput(
+    buildPreflightForm(args.phone, args.region),
+  )
+  if (collected.action !== 'accept') {
+    return toolError('Login was cancelled by the user.')
   }
+  const preflight = readPreflightForm(
+    collected.content,
+    args.phone,
+    args.region,
+  )
+  if (!preflight.ok) {
+    if (preflight.reason === 'prerequisite') {
+      log.warn('login.prerequisite', { answer: preflight.answer })
+      return prerequisiteNotMetResult(preflight.answer)
+    }
+    return toolError('Login was cancelled by the user.')
+  }
+  const { phone, region } = preflight
 
   let pinDeclined = false
   const onPin = (pin: string) => {
@@ -219,123 +178,12 @@ async function handleLoginElicitation(
   }
 }
 
-/** At most one in-flight passwordless login at a time, shared across `login`/`login_complete` calls. */
-interface PendingLogin {
-  /** The runPwlessLogin promise itself — always awaitable, guarded separately against unhandled rejection. */
-  promise: Promise<PwlessLoginResult>
-  /** The PIN once LINE has issued it; null while still waiting. */
-  pin: string | null
-  /**
-   * True once the flow reaches `waitingForBiometric` with `pin` still null —
-   * the login had a valid stored certificate, so `requestPinCodeVerif` was
-   * skipped entirely and no PIN will ever be issued for this attempt.
-   */
-  certSkippedPin: boolean
-  phone: string
-  region: string
-  startedAt: number
-  /** Resolves the instant `pin` is set OR `certSkippedPin` becomes true, so a later call can wait on either outcome. */
-  pinReady: Promise<void>
-}
-
-let pendingLogin: PendingLogin | null = null
-
 /**
- * Start a new passwordless login in the background and register it as the
- * one in-flight pending login.
- *
- * The stored promise is the actual `runPwlessLogin` promise, so
- * `login_complete` can await it and see the real success/failure. A
- * `.catch()` is attached immediately (its result discarded, not stored) so
- * an abandoned login — one nobody ever calls `login_complete` for — never
- * surfaces as an unhandled rejection; this does not affect what
- * `pendingLogin.promise` itself resolves/rejects with.
- *
- * @param service - LineProtocolService (not yet authenticated).
- * @param phone - Phone number in E.164 form.
- * @param region - Region code.
- * @returns The newly registered pending-login record.
- */
-function startPendingLogin(
-  service: LineProtocolService,
-  phone: string,
-  region: string,
-): PendingLogin {
-  let resolvePinReady: () => void = () => {}
-  const pinReady = new Promise<void>((resolve) => {
-    resolvePinReady = resolve
-  })
-
-  const pending: Partial<PendingLogin> = {
-    phone,
-    region,
-    pin: null,
-    certSkippedPin: false,
-    startedAt: Date.now(),
-    pinReady,
-  }
-
-  const onPin = (pin: string) => {
-    pending.pin = pin
-    resolvePinReady()
-  }
-  const onBiometric = () => {
-    log.warn('login.waiting_biometric', {
-      action: 'approve the new device on your phone',
-    })
-    // Reaching biometric wait with no PIN ever set means a valid stored
-    // certificate skipped the PIN step entirely (see LinePwlessLogin.login,
-    // step 2-3) — resolve `pinReady` now so `waitForPin` doesn't block out
-    // its full timeout waiting for a PIN that will never arrive.
-    if (!pending.pin) {
-      pending.certSkippedPin = true
-      resolvePinReady()
-    }
-  }
-
-  const promise = runPwlessLogin(service, phone, region, {
-    onPin,
-    onWaitingBiometric: onBiometric,
-  })
-  promise.catch(() => {
-    // Swallow here only to prevent an unhandled-rejection warning for a
-    // login nobody completes; the real error still surfaces to whoever
-    // awaits `pending.promise` (login_complete) below.
-  })
-
-  pending.promise = promise
-  return pending as PendingLogin
-}
-
-/**
- * Wait for a pending login's PIN to arrive, bounded by a timeout.
- *
- * @param pending - The pending login to wait on.
- * @param timeoutMs - Maximum time to wait.
- * @returns The PIN, or `null` if it did not arrive within `timeoutMs`.
- */
-async function waitForPin(
-  pending: PendingLogin,
-  timeoutMs: number,
-): Promise<string | null> {
-  if (pending.pin) {
-    return pending.pin
-  }
-  const outcome = await Promise.race([
-    pending.pinReady.then(() => pending.pin ?? null),
-    new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), timeoutMs)
-    }),
-  ])
-  return outcome
-}
-
-/**
- * Handle `login` for a client that does NOT support MCP elicitation
- * (confirmed empirically for Claude Desktop). Splits the flow into two
- * tool calls since the PIN cannot be prompted for in-band: this call
- * starts (or reuses) the passwordless flow and returns the PIN as soon as
- * LINE issues it; `login_complete` finishes it once the human has acted.
+ * Handle `login` for a client that supports no form of elicitation at all
+ * (confirmed empirically for Claude Desktop). Splits the flow into two tool
+ * calls since the PIN cannot be prompted for in-band: this call starts (or
+ * reuses) the passwordless flow and returns the PIN as soon as LINE issues
+ * it; `login_complete` finishes it once the human has acted.
  *
  * The MCP Apps view (./ui/login-app.ts) has never been observed to render on
  * any deployed client (see that file's header) — resources/read succeeds
@@ -391,6 +239,9 @@ async function handleLoginNoElicitation(
             text:
               'Ask the human for their LINE phone number (E.164 form, e.g. +8869XXXXXXXX) and region ' +
               `(one of ${LOGIN_REGIONS.join(', ')}), then call \`login\` again with those as arguments. ` +
+              'In the same message, tell them yomi signs in as a SECOND device, which requires ' +
+              `${PRIMARY_DEVICE_SETTING_PATH} to be enabled on the phone already logged in — if it is ` +
+              'off, LINE never prompts that phone and the login cannot finish. ' +
               'A login form may also appear for the human to fill in directly — if they use it, the ' +
               'login proceeds on its own and there is nothing further for you to do — but do not wait ' +
               'for that; if no form appears, asking the human directly is how this login makes progress.',
@@ -403,17 +254,15 @@ async function handleLoginNoElicitation(
     if (!phone) missing.push('phone')
     if (!region) missing.push('region')
     return toolError(
-      `Missing ${missing.join(' and ')} for login. This MCP client does not support elicitation, so ` +
+      `Missing ${missing.join(' and ')} for login. This MCP client does not support form elicitation, so ` +
         `${missing.join('/')} must be supplied as a tool argument, or persisted by running ` +
-        '`npx @rikaidev/yomi login` once in a terminal.',
+        '`npx @rikaidev/yomi login` once in a terminal. Also tell the human that yomi signs in as a ' +
+        `SECOND device, which requires ${PRIMARY_DEVICE_SETTING_PATH} enabled on the phone already ` +
+        'logged in — with it off, LINE never prompts that phone and no login can succeed.',
     )
   }
 
-  const now = Date.now()
-  const active =
-    pendingLogin && now - pendingLogin.startedAt < PIN_WINDOW_MS
-      ? pendingLogin
-      : null
+  const active = getLivePendingLogin(Date.now())
   if (active && (active.phone !== phone || active.region !== region)) {
     // A live login for a DIFFERENT number is still in flight. Never hand
     // back its PIN under this call's identity, and never silently start a
@@ -425,10 +274,8 @@ async function handleLoginNoElicitation(
     )
   }
   // Reuse the in-flight login only when it matches this number; otherwise
-  // start a fresh one. `pending` is non-null either way, so no narrowing of
-  // the module-level `pendingLogin` is needed downstream.
+  // start a fresh one.
   const pending = active ?? startPendingLogin(service, phone, region)
-  pendingLogin = pending
 
   const pin = await waitForPin(pending, PIN_WAIT_TIMEOUT_MS)
   if (!pin) {
@@ -442,16 +289,8 @@ async function handleLoginNoElicitation(
         pin: null,
         clientApprovalPollCeilingSeconds: Math.round(APPROVAL_WINDOW_MS / 1000),
       }
-      const certSteps =
-        'No PIN needed — LINE recognized a stored login certificate from a previous login, ' +
-        'so the PIN step was skipped.\n\n' +
-        '0. This only works if the primary phone has 設定 > 我的帳號 > 允許自其他裝置登入 ' +
-        'enabled — without it LINE will not offer this device a sign-in prompt at all.\n' +
-        '1. Bring the LINE app to the foreground on your primary phone — it should prompt you ' +
-        'to approve this new device signing in.\n' +
-        '2. Approve the device from there.\n\n'
       const certText =
-        certSteps +
+        certSteps() +
         'Call the `login_complete` tool (no arguments) IMMEDIATELY now — do not wait for ' +
         'confirmation that the approval happened first. `login_complete` blocks by itself while ' +
         `you approve (up to about ${Math.round(APPROVAL_WINDOW_MS / 60000)} minutes) and returns ` +
@@ -484,18 +323,8 @@ async function handleLoginNoElicitation(
     ),
     clientApprovalPollCeilingSeconds: Math.round(APPROVAL_WINDOW_MS / 1000),
   }
-  const pinSteps =
-    'LINE PIN:\n\n' +
-    `    ${pin}\n\n` +
-    '0. This only works if the primary phone has 設定 > 我的帳號 > 允許自其他裝置登入 enabled — ' +
-    'without it LINE will not offer this device a sign-in prompt at all.\n' +
-    '1. Open LINE on the primary phone. If a verification prompt does not appear immediately, ' +
-    'bringing the app to the foreground surfaces it.\n' +
-    `2. Enter this PIN and tick the device that is signing in, then tap 「用戶確認」 — LINE gives ` +
-    `you ${pinCodeLifetimeSeconds} seconds (about 3 minutes) from when the code was shown to do this.\n` +
-    '3. LINE will then ask that same phone to approve this new device signing in — approve it there.\n\n'
   const pinText =
-    pinSteps +
+    pinSteps(pin) +
     `Call the \`login_complete\` tool (no arguments) IMMEDIATELY now — do not wait until you have ` +
     'entered the PIN or approved the device. `login_complete` blocks by itself through both of ' +
     `those steps: it keeps waiting up to about ${clientPinPollCeilingMinutes} minutes for step 2 and ` +
@@ -510,38 +339,57 @@ async function handleLoginNoElicitation(
 }
 
 /**
- * Handle `login` — dispatches to the elicitation flow when the connected
- * client supports it, otherwise the two-phase flow that finishes via
- * `login_complete`.
+ * Handle `login` — dispatches to the path the connected client can actually
+ * complete. See this module's header for the three paths.
  *
- * @param server - MCP Server instance (for elicitInput/getClientCapabilities).
+ * Elicitation is gated on the FORM sub-capability specifically, not on the
+ * presence of an `elicitation` object: since MCP 2026-07-28 a client may
+ * declare `elicitation: { url: {} }` alone, and both elicitation paths send
+ * a `requestedSchema` that such a client would reject. See
+ * ../client-capabilities.ts, which also owns WHERE the capabilities are read
+ * from — the accessor is empty on a modern-era stdio connection.
+ *
+ * @param server - MCP Server instance (for elicitInput on the legacy path).
  * @param service - LineProtocolService (not yet authenticated).
  * @param args - Tool arguments.
- * @returns MCP tool result.
+ * @param context - Era, client capabilities, and the multi-round-trip input
+ * responses a retried `tools/call` carried (`ctx.mcpReq.inputResponses`).
+ * @returns MCP tool result, or an `input_required` result on the MRTR path.
  */
 export async function handleLogin(
   server: Server,
   service: LineProtocolService,
   args: { phone?: string; region?: string },
-  capabilities: ClientCapabilities | undefined = server.getClientCapabilities(),
-  allowPushElicitation = true,
+  context: {
+    era?: ProtocolEra
+    capabilities?: ClientCapabilities
+    inputResponses?: Record<string, unknown>
+  } = {},
 ) {
-  if (allowPushElicitation && capabilities?.elicitation) {
-    return handleLoginElicitation(server, service, args)
+  const {
+    era = 'legacy',
+    capabilities = server.getClientCapabilities(),
+    inputResponses,
+  } = context
+  if (supportsFormElicitation(capabilities)) {
+    return era === 'legacy'
+      ? handleLoginElicitation(server, service, args)
+      : handleLoginMrtr(service, args, inputResponses)
   }
   return handleLoginNoElicitation(service, args, supportsMcpApps(capabilities))
 }
 
 /**
  * Handle `login_complete` — finish a login started by a prior `login` call
- * on a non-elicitation client. Awaits the same in-flight `runPwlessLogin`
- * promise `login` started, so the real success/failure surfaces here.
- * Never touches credentials on the failure path.
+ * on a client with no elicitation. Awaits the same in-flight
+ * `runPwlessLogin` promise `login` started, so the real success/failure
+ * surfaces here.
  *
  * @returns MCP tool result describing the logged-in profile, or an honest error.
  */
 export async function handleLoginComplete() {
-  if (!pendingLogin) {
+  const pending = getPendingLogin()
+  if (!pending) {
     return toolError(
       'No login is pending. Call `login` first to start a passwordless login. ' +
         '(If you already called `login`, a previous attempt may have finished or its PIN code may have ' +
@@ -549,11 +397,8 @@ export async function handleLoginComplete() {
         '(about 3 minutes) to act on a shown code. Calling `login` again is safe.)',
     )
   }
-  const pending = pendingLogin
   try {
-    const { mid, displayName } = await pending.promise
-    pendingLogin = null
-    log.info('login.complete', { mid })
+    const { mid, displayName } = await finishPendingLogin(pending)
     return {
       content: [
         {
@@ -563,7 +408,6 @@ export async function handleLoginComplete() {
       ],
     }
   } catch (error: any) {
-    pendingLogin = null
     return toolError(error?.message ?? String(error))
   }
 }

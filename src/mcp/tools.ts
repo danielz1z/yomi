@@ -11,11 +11,11 @@
  * the fixed per-request token cost every connected client pays.
  */
 import type { Tool } from '@modelcontextprotocol/server'
+import { PRIMARY_DEVICE_SETTING_PATH } from './handlers/login-copy.js'
 
 export const TOOLS: Tool[] = [
   {
-    description:
-      'Log in to LINE via the passwordless secondary-device flow. Requires 允許自其他裝置登入 enabled on the primary phone. On MCP clients with elicitation, this call prompts for phone/region and PIN and completes login by itself. On clients without it (e.g. Claude Desktop), phone/region come from the arguments or a persisted login, and this returns as soon as LINE issues the PIN (or reports none needed) — then call login_complete IMMEDIATELY (do not wait for the human). LINE gives ~3 minutes from PIN display to confirm on the phone; login_complete blocks past that, so calling it late only wastes that window.',
+    description: `Log in to LINE via the passwordless secondary-device flow. Requires ${PRIMARY_DEVICE_SETTING_PATH} enabled on the primary phone — with it off LINE never prompts that phone and NO login can succeed, so raise this with the human up front rather than after a failure. On MCP clients with form elicitation, this call first confirms that setting, then prompts for phone/region and PIN and completes login by itself; if the human says the setting is off, it returns the enabling steps without starting a login (relay them verbatim, then call \`login\` again). On clients without it (e.g. Claude Desktop), phone/region come from the arguments or a persisted login, and this returns as soon as LINE issues the PIN (or reports none needed) — then call login_complete IMMEDIATELY (do not wait for the human). LINE gives ~3 minutes from PIN display to confirm on the phone; login_complete blocks past that, so calling it late only wastes that window.`,
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -35,7 +35,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      "Finish a passwordless login that `login` started on a client without elicitation (not needed on elicitation-capable clients). No arguments. Call immediately after `login` returns — do not wait for the human. Blocks while they enter the PIN (skipped if a stored certificate is valid) and approve the device, then returns the profile. LINE's real deadline is ~3 minutes from PIN display. Errors if no login is pending.",
+      "Finish a passwordless login that `login` started on a client without form elicitation (not needed on form-elicitation-capable clients). No arguments. Call immediately after `login` returns — do not wait for the human. Blocks while they enter the PIN (skipped if a stored certificate is valid) and approve the device, then returns the profile. LINE's real deadline is ~3 minutes from PIN display. Errors if no login is pending.",
     inputSchema: {
       type: 'object' as const,
       properties: {},

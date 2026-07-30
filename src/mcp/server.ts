@@ -18,6 +18,7 @@ import { startCapture } from '../search/capture.js'
 import { getDefaultEmbedder } from '../search/default-embedder.js'
 import { createCliLogger } from '../util/log.js'
 import { YOMI_VERSION } from '../version.js'
+import { clientCapabilitiesOf } from './client-capabilities.js'
 import {
   handleAcceptInvitation,
   handleAddFriend,
@@ -171,7 +172,7 @@ async function main(): Promise<void> {
       return { tools: toolsForClient(TOOLS, true) }
     })
 
-    server.setRequestHandler('tools/call', async (request) => {
+    server.setRequestHandler('tools/call', async (request, ctx) => {
       const { name, arguments: args } = request.params
 
       // `login` is the one tool allowed without an existing session — it is
@@ -209,12 +210,19 @@ async function main(): Promise<void> {
       try {
         switch (name) {
           case 'login':
+            // `era` selects HOW the login talks to the human: the legacy era
+            // can push `elicitation/create`, the modern one answers with
+            // multi-round-trip `input_required` results the client fulfils
+            // and retries (`ctx.mcpReq.inputResponses` carries the answers).
             return await handleLogin(
               server,
               service,
               (args ?? {}) as { phone?: string; region?: string },
-              server.getClientCapabilities(),
-              era === 'legacy',
+              {
+                era,
+                capabilities: clientCapabilitiesOf(server, ctx),
+                inputResponses: ctx.mcpReq.inputResponses,
+              },
             )
           case 'login_complete':
             return await handleLoginComplete()
