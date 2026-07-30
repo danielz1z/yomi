@@ -67,6 +67,8 @@ async function verifyEra(expectedEra, supportsApps = false) {
       YOMI_DATA_DIR: dataDir,
       YOMI_INDEX_DB_PATH: dbPath,
       YOMI_NO_KEYCHAIN: '1',
+      // Keep the probes hermetic: no npm-registry round trip at startup.
+      YOMI_NO_UPDATE_CHECK: '1',
     },
     stderr: 'pipe',
   })
@@ -191,6 +193,8 @@ async function verifyMrtrLogin() {
       YOMI_DATA_DIR: dataDir,
       YOMI_INDEX_DB_PATH: dbPath,
       YOMI_NO_KEYCHAIN: '1',
+      // Keep the probes hermetic: no npm-registry round trip at startup.
+      YOMI_NO_UPDATE_CHECK: '1',
     },
     stderr: 'pipe',
   })

@@ -167,7 +167,12 @@ const manifest = {
     mcp_config: {
       command: 'node',
       args: ['${__dirname}/run.mjs'],
-      env: {},
+      // How this copy was installed. A hand-installed .mcpb never
+      // auto-updates (the MCPB spec defines no update endpoint, and Claude
+      // Desktop only auto-updates directory extensions), so the startup
+      // version check has to tell the human to download a new bundle rather
+      // than to run npx — see src/util/update-check.ts.
+      env: { YOMI_DISTRIBUTION: 'mcpb' },
     },
   },
   compatibility: {

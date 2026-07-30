@@ -17,6 +17,7 @@ import { LineProtocolService } from '../line/core/service.js'
 import { startCapture } from '../search/capture.js'
 import { getDefaultEmbedder } from '../search/default-embedder.js'
 import { createCliLogger } from '../util/log.js'
+import { checkForUpdate } from '../util/update-check.js'
 import { YOMI_VERSION } from '../version.js'
 import { clientCapabilitiesOf } from './client-capabilities.js'
 import {
@@ -103,12 +104,22 @@ async function main(): Promise<void> {
     })
   }
 
+  // Asked once per process, bounded, best-effort: a hand-installed .mcpb
+  // bundle never auto-updates, so this notice is the only way a GUI-only user
+  // learns a newer Yomi exists (see ../util/update-check.ts). Awaited here
+  // because `instructions` is built once, before any client connects.
+  const updateNotice = await checkForUpdate()
+  if (updateNotice) {
+    log.info('update.available', { current: YOMI_VERSION })
+  }
+
   // `instructions` is surfaced by the MCP SDK to the client/model on
   // initialize — a "TOS on connect" privacy disclosure. It is a consent
   // notice, not decoration. A short model directive precedes the canonical
   // policy prose, which lives ONLY in PRIVACY.md (see ./policy.ts) so the
   // disclosure is single-sourced and never drifts from get_scope_policy.
   const instructions =
+    (updateNotice ? `${updateNotice}\n\n` : '') +
     'SESSION ERRORS — if a tool fails with a login-required or signed-out ' +
     'error, the MCP server and its connection are healthy: LINE revoked this ' +
     "device's session (usually because the same account logged in somewhere " +
