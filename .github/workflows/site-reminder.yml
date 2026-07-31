@@ -1,42 +1,29 @@
-# The landing page and llms.txt live in a different repo (RikaiDev.github.io)
-# and do not update on their own when yomi releases. The download links there
-# already point at releases/latest so they never go stale — but the visible
-# version, the tool count, and any new feature copy still need a human. This
-# opens a checklist issue on every release so that never slips again.
-name: site-reminder
+# The landing page lives in RikaiDev.github.io. Its volatile release metadata is
+# loaded from GitHub/npm at runtime, so publishing Yomi no longer needs a second
+# repository write or a long-lived cross-repository token. This job audits that
+# the deployed page still has the live updater and latest-release downloads.
+name: site-live-audit
 
 on:
   release:
     types: [published]
 
 permissions:
-  issues: write
+  contents: read
 
 jobs:
-  remind:
+  audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Open landing-page refresh reminder
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+      - name: Verify live release integration
         run: |
-          {
-            echo "$TAG is published. Refresh the landing page and llms.txt in"
-            echo "RikaiDev.github.io/yomi — they do not update automatically."
-            echo "Download links already use releases/latest, so only the"
-            echo "human-visible bits need a check:"
-            echo
-            echo "- [ ] Visible version string(s) -> $TAG"
-            echo "- [ ] Tool count, if it changed"
-            echo "- [ ] A feature card / marquee entry for anything new this release"
-            echo "- [ ] llms.txt product facts"
-            echo "- [ ] meta description / JSON-LD softwareVersion"
-            echo
-            echo "Site source: https://github.com/RikaiDev/RikaiDev.github.io/tree/main/yomi"
-            echo "Close this once the site reflects $TAG."
-          } > body.md
-          gh issue create \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Refresh landing page for $TAG" \
-            --body-file body.md
+          page="$(curl --fail --silent --show-error --location --retry 4 \
+            https://rikaidev.github.io/yomi/)"
+          updater="$(curl --fail --silent --show-error --location --retry 4 \
+            https://rikaidev.github.io/assets/yomi-release.js)"
+
+          grep -Fq '/assets/yomi-release.js' <<<"$page"
+          grep -Fq 'data-yomi-version' <<<"$page"
+          grep -Fq 'releases/latest/download/yomi-win32-x64.mcpb' <<<"$page"
+          grep -Fq 'api.github.com/repos/RikaiDev/yomi/releases/latest' <<<"$updater"
+          grep -Fq 'registry.npmjs.org/@rikaidev%2Fyomi/latest' <<<"$updater"
