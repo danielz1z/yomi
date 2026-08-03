@@ -590,6 +590,15 @@ Yomi runs as a **secondary device** on your account. That shapes what it can see
   per-epoch group keys, not a bug here. It can also cut sideways: the epoch your phone
   holds and the epoch Yomi holds need not be the same, so the **two devices can each
   read a different slice** of the very same group.
+- **Installing Yomi does not itself rotate anything, so "before I installed Yomi" is
+  the wrong boundary.** Yomi only ever *resolves* an existing group key; it never
+  registers (mints) one, because minting rotates the group's shared secret for every
+  member and strands every message encrypted under the previous one. So a fresh install
+  picks up the **current** key and reads back to the last rotation — which may predate
+  the install by months. The boundary is the last rekey, not your install date. And
+  once Yomi has seen an epoch it keeps that key, so a rotation *after* install leaves
+  it able to read both sides. If a group comes back undecryptable all the way to
+  **today**, that is not this limitation — please report it.
 - **1:1 media** uses the account-level E2EE keychain, which a secondary device fully
   possesses (LINE syncs it during pairing) — Yomi **can** decrypt 1:1 images/files it
   can see.
