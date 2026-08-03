@@ -158,10 +158,10 @@ class VolatileCacheStore {
       while (this.dirty) {
         this.dirty = false
         try {
-          const dir = this.filePath.substring(0, this.filePath.lastIndexOf('/'))
-          if (dir) {
-            await fs.mkdir(dir, { recursive: true, mode: 0o700 })
-          }
+          await fs.mkdir(dirname(this.filePath), {
+            recursive: true,
+            mode: 0o700,
+          })
           const tmp = `${this.filePath}.tmp`
           // Group shared keys live here — they decrypt group messages. The
           // default 0644 made them readable by every other account on the
@@ -291,8 +291,11 @@ export class CredentialStore {
 
     try {
       const fs = await import('node:fs/promises')
-      const dir = this.filePath.substring(0, this.filePath.lastIndexOf('/'))
-      await fs.mkdir(dir, { recursive: true, mode: 0o700 })
+      // `dirname`, not a slice on '/': a Windows path has no forward slash, so
+      // the slice yielded '' and `mkdir('')` threw ENOENT — swallowed by the
+      // catch below, so every credential write on Windows silently failed and
+      // no session (auth token, mid, E2EE keypair) was ever persisted.
+      await fs.mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 })
       await fs.writeFile(this.filePath, blob, { mode: 0o600 })
       // `mode` is ignored when the file already exists, so repair older installs.
       await fs.chmod(this.filePath, 0o600).catch(() => {})
