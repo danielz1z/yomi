@@ -436,8 +436,8 @@ fake success.
 | `get_chat_messages` | One conversation, decrypted. Paginate deeper with a `before` cursor. Each message carries any raw `MENTION` metadata so you can see who was @-mentioned (a literal `@name` in the text is *not* a mention). |
 | `get_message_media` / `get_message_image` | Any decrypted attachment (image/video/audio/file). Honest error on non-media. |
 | `find_contact` / `list_contacts` | Friend-list lookup by name substring, or the full list. Raw LINE data — no fuzzy scoring, no affinity ranking. |
-| `find_contact_by_id` | Resolve a LINE ID or Official Account basic ID (leading `@`, e.g. `@shop`) to a contact (mid + profile) without adding it. Honest error when LINE matches nothing (ID search can be disabled by the owner). |
-| `add_friend` | Adds a friend now, by `mid` (raw) or by `userId` (LINE ID / `@official` basic ID — resolved via LINE's ID search, then added). Honest error on no match. |
+| `find_contact_by_id` | Resolve a LINE ID or Official Account basic ID (leading `@`, e.g. `@shop`) to a contact (mid + profile) without adding it — TalkService `findContactByUserid`, the ID-search method desktop clients are allowed to call. Honest, distinct errors for no-match (ID unset or search disabled by the owner), malformed ID, and LINE capability rejections. |
+| `add_friend` | Adds a friend now, by `mid` (raw) or by `userId` (LINE ID / `@official` basic ID — resolved via the same ID search, then added by MID). Honest error on no match. |
 | `get_group_members` | Members of a persistent group. Ad-hoc rooms without a group record fail honestly rather than returning a fake empty list. |
 
 ### Insight (read the situation, not just the messages)
@@ -673,8 +673,8 @@ what actually starts a session.
 ```
 src/
   line/     LINE protocol core: TCompact/Thrift codec, E2EE (Letter-Sealing,
-            group keys, media), Talk/Auth/Sync/Relation service clients,
-            session state, passwordless + ForSecure QR login flows.
+            group keys, media), Talk/Auth/Sync service clients, session
+            state, passwordless + ForSecure QR login flows.
   auth/     Credential store (macOS Keychain, JSON-file fallback off-darwin).
   search/   Local cross-conversation index (SQLite + FTS5) and the offline
             embedding pipeline (transformers.js).

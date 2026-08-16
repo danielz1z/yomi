@@ -11,8 +11,8 @@ LINEJS — https://github.com/evex-dev/linejs
 Referenced for: TalkService/AuthService request shapes and the Letter-Sealing
 E2EE payload layout (chunk ordering, integer encoding); the ForSecure QR
 secondary-device login state machine (createQrCodeForSecure /
-qrCodeLoginV2ForSecure, ported in src/line/auth/qr/); and the RelationService
-findContactBySearchIdOrTicketV3 request shape (src/line/client/relation-service/).
+qrCodeLoginV2ForSecure, ported in src/line/auth/qr/); and the
+findContactByUserid thrift args layout confirmed against its type tables.
 Referenced in comments throughout src/line/.
 
 MIT License
@@ -40,7 +40,9 @@ SOFTWARE.
 ================================================================================
 CHRLINE — https://github.com/DeachSword/CHRLINE
 Referenced for: verifying LINE protocol field layouts and the passwordless
-(secondary-device) login flow. Referenced in comments in src/line/auth/.
+(secondary-device) login flow, and the TalkService findContactByUserid
+request shape (field-2 searchId, no reqSeq). Referenced in comments in
+src/line/auth/ and src/line/client/talk-service/.
 
 BSD 3-Clause License
 
