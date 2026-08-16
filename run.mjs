@@ -6,6 +6,7 @@
  *   yomi                Start the MCP stdio server (default)
  *   yomi serve          Same as above, explicit
  *   yomi login [...]    Run the passwordless login flow in a terminal
+ *   yomi login-qr       Run the QR (ForSecure) login flow in a terminal
  *   yomi help           Show this help
  *   yomi version        Print version
  */
@@ -38,6 +39,11 @@ switch (cmd) {
     const code = await cliLogin(args.slice(1));
     process.exit(code);
   }
+  case 'login-qr': {
+    const { cliLoginQr } = await load('cli/login-qr');
+    const code = await cliLoginQr();
+    process.exit(code);
+  }
   case 'serve':
     await load('mcp/server');
     break;
@@ -50,13 +56,15 @@ Usage:
   yomi                Start the MCP stdio server (default)
   yomi serve          Same as above, explicit
   yomi login [...]    Run the passwordless login flow in a terminal
+  yomi login-qr       Run the QR (ForSecure) login flow in a terminal — no phone number needed
   yomi help           Show this help
   yomi version        Print version
 
 Examples:
   npx @rikaidev/yomi                  # start MCP server
-  npx @rikaidev/yomi login            # interactive login
-  npx @rikaidev/yomi login --phone +886912345678 --region TW`);
+  npx @rikaidev/yomi login            # interactive login (phone + PIN)
+  npx @rikaidev/yomi login --phone +886912345678 --region TW
+  npx @rikaidev/yomi login-qr         # interactive QR login (scan with your phone)`);
     break;
   case 'version':
   case '--version':

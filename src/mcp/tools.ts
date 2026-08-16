@@ -44,6 +44,24 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
+      'Log in to LINE by QR code (ForSecure secondary-device flow) — the path for accounts with NO phone number (e.g. created via Apple): the account is identified by whichever primary phone scans the code, exactly like official LINE for Chrome. No arguments. Starts the flow and returns as soon as LINE issues the QR payload, as a scannable PNG plus the raw URL. The same prerequisite as `login` applies: the primary phone must allow login from other devices or LINE never confirms the scan. Call login_qr_complete IMMEDIATELY after this returns — do not wait for the human. LINE gives ~3 minutes from code display to confirm; login_qr_complete blocks past that, so calling it late only wastes that window.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+    name: 'login_qr',
+  },
+  {
+    description:
+      'Finish a QR login that `login_qr` started. No arguments. Call immediately after `login_qr` returns — do not wait for the human to scan. Blocks while they scan and approve on the phone. If LINE asks for a PIN this returns EARLY carrying it (the human cannot type a PIN they have not seen): show it verbatim and call login_qr_complete again. Returns the profile once login completes. Errors if no QR login is pending.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+    name: 'login_qr_complete',
+  },
+  {
+    description:
       "List LINE conversations (chats, groups, rooms) with unread counts, a preview of the last message, and a human-readable name (group title, or the other party's display name for a 1:1).",
     inputSchema: {
       type: 'object' as const,

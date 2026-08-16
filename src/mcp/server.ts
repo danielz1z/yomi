@@ -47,6 +47,8 @@ import {
   handleListStickers,
   handleLogin,
   handleLoginComplete,
+  handleLoginQr,
+  handleLoginQrComplete,
   handleMarkRead,
   handlePreviewSticker,
   handleReactMessage,
@@ -187,10 +189,11 @@ async function main(): Promise<void> {
     server.setRequestHandler('tools/call', async (request, ctx) => {
       const { name, arguments: args } = request.params
 
-      // `login` is the one tool allowed without an existing session — it is
-      // how a session gets created. `search_messages` also runs without a
-      // live session: it reads the local search index (and, when a session
-      // does exist, auto-collects a first-time empty index). exclude_chats/
+      // `login`/`login_qr` are the tools allowed without an existing
+      // session — they are how a session gets created. `search_messages`
+      // also runs without a live session: it reads the local search index
+      // (and, when a session does exist, auto-collects a first-time empty
+      // index). exclude_chats/
       // include_chats/list_excluded_chats are local-index scoping operations
       // over ../search/scope.ts and likewise need no live client (list's name
       // resolution just degrades to null without one). Everything else needs
@@ -198,6 +201,8 @@ async function main(): Promise<void> {
       const noSessionExempt =
         name === 'login' ||
         name === 'login_complete' ||
+        name === 'login_qr' ||
+        name === 'login_qr_complete' ||
         name === 'search_messages' ||
         name === 'exclude_chats' ||
         name === 'include_chats' ||
@@ -238,6 +243,10 @@ async function main(): Promise<void> {
             )
           case 'login_complete':
             return await handleLoginComplete()
+          case 'login_qr':
+            return await handleLoginQr(service)
+          case 'login_qr_complete':
+            return await handleLoginQrComplete()
           case 'list_conversations':
             return await handleListConversations(
               service,
