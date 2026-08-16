@@ -68,9 +68,11 @@ export class LineProtocolService extends EventEmitter {
   // createChatRuntimeService (see constructor below) — TS cannot see that
   // assignment, so these use definite-assignment assertions. Yomi's MCP
   // server calls resumeSession/sendMessage/getRecentMessages/
-  // getPreviousMessages/download* only; it never calls startPwlessLogin
-  // (still present for compile completeness).
+  // getPreviousMessages/download* only; it never calls startPwlessLogin or
+  // startQrLogin from the query paths (still present for compile
+  // completeness).
   public startPwlessLogin!: (phone: string, region: string) => Promise<any>
+  public startQrLogin!: () => Promise<any>
   public logout!: () => Promise<void>
   public invalidateSession!: (reason?: string) => Promise<void>
   public tryRefreshToken!: () => Promise<boolean>
@@ -173,6 +175,8 @@ export class LineProtocolService extends EventEmitter {
   public cancelReaction!: (messageId: string) => Promise<any>
   public unsendMessage!: (messageId: string) => Promise<any>
   public addFriend!: (mid: string, reference?: string) => Promise<any>
+  public findContactByUserId!: (userId: string) => Promise<any>
+  public addFriendByUserId!: (userId: string) => Promise<any>
   public blockContact!: (mid: string) => Promise<any>
   public unblockContact!: (mid: string) => Promise<any>
   public acceptInvitation!: (chatMid: string) => Promise<any>
