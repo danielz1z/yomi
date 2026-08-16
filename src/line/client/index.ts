@@ -8,14 +8,12 @@
  *   - sync-service/    — Polling: sync, longPoll, startPolling
  *   - e2ee-service/    — E2EE transport capabilities
  *   - shop-service/    — ShopService: owned sticker packages
- *   - relation-service/— RelationService: contact discovery by LINE ID / @OA
  *
  * Endpoints:
  *   /AS4    — AuthService
  *   /S4     — TalkService
  *   /SYNC4  — SyncService
  *   /TSHOP4 — ShopService
- *   /RE4    — RelationService
  */
 
 import { EventEmitter } from 'node:events'
@@ -26,7 +24,6 @@ import type { ThriftFieldTuple } from '../core/thrift/types.js'
 import { createAuthClient } from './auth-service/client.js'
 import { createE2EEClient } from './e2ee-service/client.js'
 import { parseOperation } from './parsers.js'
-import { createRelationClient } from './relation-service/client.js'
 import type { OwnedStickerPackage } from './shop-service/client.js'
 import { createShopClient } from './shop-service/client.js'
 import { createSyncClient } from './sync-service/client.js'
@@ -184,7 +181,7 @@ export class LineClient extends EventEmitter {
     mid: string,
     reference?: string,
   ) => Promise<any>
-  public findContactBySearchIdOrTicketV3!: (searchId: string) => Promise<any>
+  public findContactByUserid!: (searchId: string) => Promise<any>
   public blockContact!: (mid: string) => Promise<boolean>
   public unblockContact!: (mid: string) => Promise<boolean>
   public acceptChatInvitation!: (chatMid: string) => Promise<boolean>
@@ -211,7 +208,6 @@ export class LineClient extends EventEmitter {
       createSyncClient(this),
       createE2EEClient(this),
       createShopClient(this),
-      createRelationClient(this),
     )
   }
 

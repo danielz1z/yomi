@@ -694,7 +694,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      'Adds a person to your LINE friends. Pass exactly one of: `mid` (a raw MID, e.g. from get_group_members or find_contact) or `userId` (a human-facing LINE ID, or an Official Account basic ID with its leading "@", e.g. "@shop" — resolved first, then added). One add per call. Fails honestly when LINE matches no account for the given ID.',
+      'Adds a person to your LINE friends. Pass exactly one of: `mid` (a raw MID, e.g. from get_group_members or find_contact) or `userId` (a human-facing LINE ID, or an Official Account basic ID with its leading "@", e.g. "@shop" — resolved via LINE\'s ID search first, then added by MID). One add per call. Fails honestly: no match (ID unset or search disabled by the owner), invalid ID shape, and LINE capability rejections are reported as distinct outcomes, never as a fake success.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -714,7 +714,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      'Resolve a LINE ID or Official Account basic ID (leading "@", e.g. "@shop") to a contact — mid, displayName, profile fields — WITHOUT adding it (use add_friend with userId to resolve+add in one step). Read-only. Fails honestly when LINE matches no account (ID search can be disabled by the owner).',
+      'Resolve a LINE ID or Official Account basic ID (leading "@", e.g. "@shop") to a contact — mid, displayName, profile fields — WITHOUT adding it (use add_friend with userId to resolve+add in one step). Read-only. Honest outcomes: found, no match (ID unset or search disabled by the owner), or invalid ID shape.',
     inputSchema: {
       type: 'object' as const,
       properties: {

@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test'
-import { buildFindContactBySearchIdOrTicketV3Request } from '../../line/client/relation-service/requests.js'
-import { createChatRuntimeService } from '../../line/core/chat-runtime-service.js'
+import { buildFindContactByUseridRequest } from '../../line/client/talk-service/requests.js'
+import {
+  createChatRuntimeService,
+  normalizeLineSearchId,
+} from '../../line/core/chat-runtime-service.js'
 import type { LineProtocolService } from '../../line/core/service.js'
 import {
   decodeResponseMessage,
@@ -10,11 +13,13 @@ import { handleAddFriend, handleFindContactById } from './contacts.js'
 
 /**
  * A service stand-in carrying the chat-runtime mixin plus a fake client
- * whose relation/talk calls are recorded. No network: the fake client IS
- * the LINE server for these tests.
+ * whose talk calls are recorded. No network: the fake client IS the LINE
+ * server for these tests. It intentionally has NO
+ * findContactBySearchIdOrTicketV3 method — any code path still calling the
+ * capability-gated RelationService V3 RPC blows up loudly here.
  *
- * @param options.contact - Contact the search resolves to (null = no match
- * behaves like LINE throwing NOT_FOUND).
+ * @param options.contact - Contact the search resolves to.
+ * @param options.searchError - Error the search throws instead.
  * @returns The wired service plus the recorded client calls.
  */
 function makeService(options: { contact?: any; searchError?: any } = {}) {
@@ -26,11 +31,8 @@ function makeService(options: { contact?: any; searchError?: any } = {}) {
   const service: any = {
     nameCache: new Map<string, string>(),
     client: {
-      async findContactBySearchIdOrTicketV3(searchId: string) {
-        calls.push({
-          method: 'findContactBySearchIdOrTicketV3',
-          args: [searchId],
-        })
+      async findContactByUserid(searchId: string) {
+        calls.push({ method: 'findContactByUserid', args: [searchId] })
         if (options.searchError) {
           throw options.searchError
         }
@@ -49,15 +51,18 @@ function makeService(options: { contact?: any; searchError?: any } = {}) {
   return { service: service as LineProtocolService, calls }
 }
 
-test('request wire shape: {1: {1: {1: searchId}}} on findContactBySearchIdOrTicketV3', () => {
+test('request wire shape: {2: searchId} on findContactByUserid, no reqSeq at field 1', () => {
   const data = encodeCallMessage(
-    'findContactBySearchIdOrTicketV3',
+    'findContactByUserid',
     1,
-    buildFindContactBySearchIdOrTicketV3Request('@shop'),
+    buildFindContactByUseridRequest('@shop'),
   )
   const decoded = decodeResponseMessage(data)
-  expect(decoded.method).toBe('findContactBySearchIdOrTicketV3')
-  expect(decoded.fields?.[1]?.[1]?.[1]).toBe('@shop')
+  expect(decoded.method).toBe('findContactByUserid')
+  expect(decoded.fields?.[2]).toBe('@shop')
+  // This legacy method predates the reqSeq convention — field 1 must stay
+  // empty (CHRLINE TalkService.findContactByUserid: [[11, 2, searchId]]).
+  expect(decoded.fields?.[1]).toBeUndefined()
 })
 
 test('addFriend by MID adds directly — no search call', async () => {
@@ -76,7 +81,7 @@ test('addFriendByUserId resolves the ID, then adds the resolved MID', async () =
   const { service, calls } = makeService()
   const result = await service.addFriendByUserId('@shop')
   expect(calls.map((c) => c.method)).toEqual([
-    'findContactBySearchIdOrTicketV3',
+    'findContactByUserid',
     'findAndAddContactsByMid',
   ])
   expect(calls[0].args).toEqual(['@shop'])
@@ -95,6 +100,23 @@ test('addFriendByUserId resolves the ID, then adds the resolved MID', async () =
   expect((service as any).nameCache.get('u-resolved-mid')).toBe('Shop')
 })
 
+test('the capability-gated RelationService V3 RPC is never what the search uses', async () => {
+  const { service, calls } = makeService()
+  await service.findContactByUserId('@shop')
+  await service.addFriendByUserId('@shop')
+  // LINE answers findContactBySearchIdOrTicketV3 with "API method not
+  // capable" on a DESKTOPMAC identity — the fake client above does not even
+  // implement it, so any leftover call path throws TypeError instead.
+  expect(
+    calls.every((c) => c.method !== 'findContactBySearchIdOrTicketV3'),
+  ).toBe(true)
+  expect(calls.map((c) => c.method)).toEqual([
+    'findContactByUserid',
+    'findContactByUserid',
+    'findAndAddContactsByMid',
+  ])
+})
+
 test('addFriendByUserId fails honestly when the search yields no mid', async () => {
   const { service, calls } = makeService({ contact: null })
   await expect(service.addFriendByUserId('@nobody')).rejects.toThrow(
@@ -111,8 +133,56 @@ test('findContactByUserId resolves without adding', async () => {
     userId: 'some.line.id',
     mid: 'u-resolved-mid',
   })
-  expect(calls.map((c) => c.method)).toEqual([
-    'findContactBySearchIdOrTicketV3',
+  expect(calls.map((c) => c.method)).toEqual(['findContactByUserid'])
+})
+
+test('normalizeLineSearchId trims and codes the rejection', () => {
+  expect(normalizeLineSearchId('  @shop ')).toBe('@shop')
+  try {
+    normalizeLineSearchId('bad id!')
+    throw new Error('should have thrown')
+  } catch (error: any) {
+    expect(error.data.code).toBe('INVALID_LINE_ID')
+    expect(error.message).toContain('bad id!')
+  }
+})
+
+test('malformed IDs are rejected before any network call', async () => {
+  const { service, calls } = makeService()
+  for (const bad of [
+    '',
+    '   ',
+    '@',
+    'has space',
+    '@double@at',
+    '日本語',
+    'a@b',
+  ]) {
+    await expect(service.findContactByUserId(bad)).rejects.toThrow(
+      /not a valid LINE ID/,
+    )
+    await expect(service.addFriendByUserId(bad)).rejects.toThrow(
+      /not a valid LINE ID/,
+    )
+  }
+  expect(calls).toHaveLength(0)
+})
+
+test('well-formed shapes pass validation: plain IDs, @OAs, dots/underscores/dashes', async () => {
+  const { service, calls } = makeService()
+  for (const good of [
+    'daniel484',
+    '@522cimsu',
+    'some.line-id_ok',
+    '@grabmerchantth',
+  ]) {
+    await service.findContactByUserId(good)
+  }
+  expect(calls.map((c) => c.args[0])).toEqual([
+    'daniel484',
+    '@522cimsu',
+    'some.line-id_ok',
+    '@grabmerchantth',
   ])
 })
 
@@ -124,7 +194,7 @@ test('handleAddFriend routes mid vs userId to different protocol paths', async (
   const byId = makeService()
   await handleAddFriend(byId.service, { userId: '@shop' })
   expect(byId.calls.map((c) => c.method)).toEqual([
-    'findContactBySearchIdOrTicketV3',
+    'findContactByUserid',
     'findAndAddContactsByMid',
   ])
 })
@@ -153,17 +223,51 @@ test('a NOT_FOUND from LINE becomes an honest "no such account" error', async ()
   const result: any = await handleAddFriend(service, { userId: '@ghost' })
   expect(result.isError).toBe(true)
   expect(result.content[0].text).toContain('No LINE account matches "@ghost"')
+  expect(result.content[0].text).toContain('keep the leading "@"')
 })
 
-test('a non-NOT_FOUND failure propagates instead of masquerading as a miss', async () => {
+test('a method-not-capable answer is reported as a capability restriction, not a miss', async () => {
+  const { service } = makeService({
+    searchError: Object.assign(
+      new Error(
+        "findContactByUserid failed: API method not capable: 'findContactByUserid'",
+      ),
+      { data: { code: 'METHOD_NOT_CAPABLE' } },
+    ),
+  })
+  const find: any = await handleFindContactById(service, { userId: '@shop' })
+  expect(find.isError).toBe(true)
+  expect(find.content[0].text).toContain('does not allow')
+  expect(find.content[0].text).toContain('capability')
+  expect(find.content[0].text).not.toContain('No LINE account matches')
+
+  const add: any = await handleAddFriend(service, { userId: '@shop' })
+  expect(add.isError).toBe(true)
+  expect(add.content[0].text).toContain('capability')
+})
+
+test('an invalid ID gets its own message and never touches LINE', async () => {
+  const { service, calls } = makeService()
+  const result: any = await handleFindContactById(service, {
+    userId: 'bad id!',
+  })
+  expect(result.isError).toBe(true)
+  expect(result.content[0].text).toContain('not a valid LINE ID')
+  expect(calls).toHaveLength(0)
+})
+
+test('a non-classified failure propagates instead of masquerading as a miss', async () => {
   const { service } = makeService({
     searchError: new Error(
-      'Request internal failed, findContactBySearchIdOrTicketV3 -> rate limited',
+      'Request internal failed, findContactByUserid -> rate limited',
     ),
   })
   await expect(handleAddFriend(service, { userId: '@shop' })).rejects.toThrow(
     /rate limited/,
   )
+  await expect(
+    handleFindContactById(service, { userId: '@shop' }),
+  ).rejects.toThrow(/rate limited/)
 })
 
 test('find_contact_by_id resolves read-only and reports misses honestly', async () => {
@@ -174,9 +278,7 @@ test('find_contact_by_id resolves read-only and reports misses honestly', async 
     userId: '@shop',
     mid: 'u-resolved-mid',
   })
-  expect(calls.map((c) => c.method)).toEqual([
-    'findContactBySearchIdOrTicketV3',
-  ])
+  expect(calls.map((c) => c.method)).toEqual(['findContactByUserid'])
 
   const missing = makeService({
     searchError: Object.assign(new Error('Request internal failed'), {
