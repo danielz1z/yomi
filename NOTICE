@@ -9,8 +9,11 @@ reproduced here as required.
 ================================================================================
 LINEJS — https://github.com/evex-dev/linejs
 Referenced for: TalkService/AuthService request shapes and the Letter-Sealing
-E2EE payload layout (chunk ordering, integer encoding). Referenced in comments
-throughout src/line/.
+E2EE payload layout (chunk ordering, integer encoding); the ForSecure QR
+secondary-device login state machine (createQrCodeForSecure /
+qrCodeLoginV2ForSecure, ported in src/line/auth/qr/); and the RelationService
+findContactBySearchIdOrTicketV3 request shape (src/line/client/relation-service/).
+Referenced in comments throughout src/line/.
 
 MIT License
 
