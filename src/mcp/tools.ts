@@ -676,7 +676,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      'Adds a person to your LINE friends by their MID (e.g. from get_group_members or find_contact). One add per call.',
+      'Adds a person to your LINE friends. Pass exactly one of: `mid` (a raw MID, e.g. from get_group_members or find_contact) or `userId` (a human-facing LINE ID, or an Official Account basic ID with its leading "@", e.g. "@shop" — resolved first, then added). One add per call. Fails honestly when LINE matches no account for the given ID.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -685,10 +685,30 @@ export const TOOLS: Tool[] = [
           description:
             'MID of the person to add as a friend, e.g. from get_group_members.',
         },
+        userId: {
+          type: 'string',
+          description:
+            'LINE ID or Official Account basic ID (leading "@", e.g. "@shop") of the account to add. Mutually exclusive with mid.',
+        },
       },
-      required: ['mid'],
     },
     name: 'add_friend',
+  },
+  {
+    description:
+      'Resolve a LINE ID or Official Account basic ID (leading "@", e.g. "@shop") to a contact — mid, displayName, profile fields — WITHOUT adding it (use add_friend with userId to resolve+add in one step). Read-only. Fails honestly when LINE matches no account (ID search can be disabled by the owner).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        userId: {
+          type: 'string',
+          description:
+            'LINE ID or Official Account basic ID (leading "@", e.g. "@shop") to resolve.',
+        },
+      },
+      required: ['userId'],
+    },
+    name: 'find_contact_by_id',
   },
   {
     description:

@@ -130,23 +130,89 @@ export async function handleGetGroupMembers(
 }
 
 /**
- * Handle `add_friend` — REALLY adds a person to THIS account's LINE friends now
- * by MID (TalkService findAndAddContactsByMid).
+ * Whether a thrown LINE error is the contact-search "no match" outcome
+ * (TalkException code 5, NOT_FOUND) rather than a real failure.
+ *
+ * @param error - Error thrown by the search/add call.
+ * @returns True when LINE reported no match for the searched ID.
+ */
+function isContactNotFoundError(error: any): boolean {
+  const code = error?.data?.code
+  return code === 'NOT_FOUND' || code === '5' || code === 5
+}
+
+/**
+ * Handle `add_friend` — REALLY adds a person to THIS account's LINE friends
+ * now. Two identifier forms: `mid` (TalkService findAndAddContactsByMid
+ * directly) or `userId` — a LINE ID / Official Account basic ID like
+ * `@shop` — resolved first via RelationService
+ * findContactBySearchIdOrTicketV3, then added by the resolved MID.
+ *
+ * @param service - Resumed LineProtocolService.
+ * @param args - Tool arguments (`mid` xor `userId`).
+ * @returns MCP tool result.
+ */
+export async function handleAddFriend(
+  service: LineProtocolService,
+  args: { mid?: string; userId?: string },
+) {
+  if (!args.mid && !args.userId) {
+    return toolError(
+      'mid or userId is required. Pass a LINE ID (or @OfficialAccount basic ID) as `userId`, or a raw MID as `mid`.',
+    )
+  }
+  if (args.mid && args.userId) {
+    return toolError('Pass only one of mid / userId, not both.')
+  }
+  try {
+    if (args.userId) {
+      const result = await service.addFriendByUserId(args.userId)
+      log.info('add_friend.done', { userId: args.userId, mid: result?.mid })
+      return jsonResult(result)
+    }
+    const result = await service.addFriend(args.mid as string)
+    log.info('add_friend.done', { mid: args.mid })
+    return jsonResult(result)
+  } catch (error: any) {
+    if (args.userId && isContactNotFoundError(error)) {
+      return toolError(
+        `No LINE account matches "${args.userId}". For an Official Account keep the leading "@"; ` +
+          'note LINE only resolves IDs that are searchable (the owner can disable ID search).',
+      )
+    }
+    throw error
+  }
+}
+
+/**
+ * Handle `find_contact_by_id` — resolve a LINE ID or Official Account basic
+ * ID to a contact (mid + profile fields) WITHOUT adding it
+ * (RelationService findContactBySearchIdOrTicketV3). Read-only.
  *
  * @param service - Resumed LineProtocolService.
  * @param args - Tool arguments.
  * @returns MCP tool result.
  */
-export async function handleAddFriend(
+export async function handleFindContactById(
   service: LineProtocolService,
-  args: { mid: string },
+  args: { userId: string },
 ) {
-  if (!args.mid) {
-    return toolError('mid is required.')
+  if (!args.userId) {
+    return toolError('userId is required.')
   }
-  const result = await service.addFriend(args.mid)
-  log.info('add_friend.done', { mid: args.mid })
-  return jsonResult(result)
+  try {
+    const result = await service.findContactByUserId(args.userId)
+    log.info('find_contact_by_id.done', { userId: args.userId })
+    return jsonResult(result)
+  } catch (error: any) {
+    if (isContactNotFoundError(error)) {
+      return toolError(
+        `No LINE account matches "${args.userId}". For an Official Account keep the leading "@"; ` +
+          'note LINE only resolves IDs that are searchable (the owner can disable ID search).',
+      )
+    }
+    throw error
+  }
 }
 
 /**

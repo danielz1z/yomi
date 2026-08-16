@@ -61,6 +61,7 @@ export const LINE_APP_CONFIG = {
   syncPath: '/SYNC4',
   authPath: '/AS4',
   revokePath: '/RS4',
+  relationPath: '/RE4',
   tokenRefreshPath: '/EXT/auth/tokenrefresh/v1',
   qrPath: '/acct/lgn/sq/v1',
   qrLongPollPath: '/acct/lp/lgn/sq/v1',

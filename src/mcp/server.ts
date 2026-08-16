@@ -29,6 +29,7 @@ import {
   handleCreateGroup,
   handleExcludeChats,
   handleFindContact,
+  handleFindContactById,
   handleGetChatMessages,
   handleGetGroupMembers,
   handleGetInsight,
@@ -450,7 +451,12 @@ async function main(): Promise<void> {
           case 'add_friend':
             return await handleAddFriend(
               service,
-              (args ?? {}) as { mid: string },
+              (args ?? {}) as { mid?: string; userId?: string },
+            )
+          case 'find_contact_by_id':
+            return await handleFindContactById(
+              service,
+              (args ?? {}) as { userId: string },
             )
           case 'block_contact':
             return await handleBlockContact(

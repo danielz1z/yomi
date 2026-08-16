@@ -436,6 +436,50 @@ export function createChatRuntimeService(service: any) {
     },
 
     /**
+     * Resolve a LINE ID or Official Account basic ID (leading `@`) to a
+     * contact WITHOUT adding it (RelationService
+     * findContactBySearchIdOrTicketV3). Throws when LINE matches nothing.
+     *
+     * @param userId - LINE ID or `@`-prefixed Official Account basic ID.
+     * @returns `{ userId, mid, contact }`.
+     */
+    async findContactByUserId(userId: string): Promise<any> {
+      const contact =
+        await service.client.findContactBySearchIdOrTicketV3(userId)
+      if (contact?.mid && contact?.displayName) {
+        service.nameCache.set(contact.mid, contact.displayName)
+      }
+      return { userId, mid: contact?.mid ?? null, contact }
+    },
+
+    /**
+     * Add a friend by LINE ID / Official Account basic ID: resolve the ID
+     * (RelationService findContactBySearchIdOrTicketV3), then add the
+     * resolved MID through the same proven findAndAddContactsByMid the
+     * MID-only path uses, with the ID-search reference breadcrumb.
+     *
+     * @param userId - LINE ID or `@`-prefixed Official Account basic ID.
+     * @returns `{ added, userId, mid, contact }`.
+     */
+    async addFriendByUserId(userId: string): Promise<any> {
+      const found = await service.client.findContactBySearchIdOrTicketV3(userId)
+      const mid = found?.mid
+      if (!mid) {
+        throw new Error(
+          `addFriendByUserId: no contact in response for "${userId}"`,
+        )
+      }
+      if (found?.displayName) {
+        service.nameCache.set(mid, found.displayName)
+      }
+      const contact = await service.client.findAndAddContactByMid(
+        mid,
+        '{"screen":"friendAdd:idSearch","spec":"native"}',
+      )
+      return { added: true, userId, mid, contact }
+    },
+
+    /**
      * Block a contact (TalkService blockContact).
      *
      * @param mid - Contact MID to block.
