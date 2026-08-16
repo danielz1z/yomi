@@ -2,7 +2,7 @@
  * LINE core auth/session capability.
  */
 
-import { performPwlessLogin } from '../auth/protocol/index.js'
+import { performPwlessLogin, performQrLogin } from '../auth/protocol/index.js'
 import { performLogout } from './auth-session-logout.js'
 import {
   resumeSession as resumeSessionImpl,
@@ -33,6 +33,22 @@ export function createAuthSessionService(
         service,
         phone,
         region,
+        states.LOGGING_IN,
+        states.CONNECTED,
+        states.ERROR,
+      )
+    },
+
+    /**
+     * Start the ForSecure QR login process — the secondary-device path for
+     * accounts that have no phone number (the QR is scanned and approved on
+     * the primary phone, exactly like official LINE for Chrome).
+     *
+     * @returns Promise resolving to the login result.
+     */
+    async startQrLogin(): Promise<any> {
+      return performQrLogin(
+        service,
         states.LOGGING_IN,
         states.CONNECTED,
         states.ERROR,

@@ -15,6 +15,35 @@ import { createMessageCommandService } from './message-command-service.js'
 import { createMessageQueryService } from './message-query-service.js'
 
 /**
+ * Validate and normalize a human-facing LINE search id: a personal LINE ID
+ * or an Official Account basic ID with its leading `@`. LINE's own rules
+ * are half-width alphanumerics plus `.` `_` `-`; the `@` is legal only as
+ * the very first character. Anything else (empty, whitespace, unicode,
+ * stray `@`) could never resolve — fail BEFORE the network with a coded
+ * error (`data.code === 'INVALID_LINE_ID'`) so callers can tell a malformed
+ * input apart from a server-side NOT_FOUND.
+ *
+ * The id is otherwise passed through unchanged (LINE's ID matching is
+ * case-insensitive server-side; no case folding here, so the response
+ * reflects exactly what was asked).
+ *
+ * @param userId - Raw user-supplied identifier.
+ * @returns The trimmed, validated search id.
+ */
+export function normalizeLineSearchId(userId: string): string {
+  const searchId = String(userId ?? '').trim()
+  if (/^@?[A-Za-z0-9._-]{1,64}$/.test(searchId) && searchId !== '@') {
+    return searchId
+  }
+  const error: any = new Error(
+    `"${userId}" is not a valid LINE ID or Official Account basic ID ` +
+      '(expected half-width letters/numbers and . _ -, with at most one leading @).',
+  )
+  error.data = { code: 'INVALID_LINE_ID' }
+  throw error
+}
+
+/**
  * Create the chat/runtime capability bound to one LINE protocol service.
  *
  * @param service - Mutable LINE protocol service runtime.
@@ -433,6 +462,51 @@ export function createChatRuntimeService(service: any) {
         reference,
       )
       return { added: true, mid, contact }
+    },
+
+    /**
+     * Resolve a LINE ID or Official Account basic ID (leading `@`) to a
+     * contact WITHOUT adding it (TalkService findContactByUserid). Throws
+     * when LINE matches nothing or the ID is not even well-formed.
+     *
+     * @param userId - LINE ID or `@`-prefixed Official Account basic ID.
+     * @returns `{ userId, mid, contact }`.
+     */
+    async findContactByUserId(userId: string): Promise<any> {
+      const searchId = normalizeLineSearchId(userId)
+      const contact = await service.client.findContactByUserid(searchId)
+      if (contact?.mid && contact?.displayName) {
+        service.nameCache.set(contact.mid, contact.displayName)
+      }
+      return { userId: searchId, mid: contact?.mid ?? null, contact }
+    },
+
+    /**
+     * Add a friend by LINE ID / Official Account basic ID: resolve the ID
+     * (TalkService findContactByUserid), then add the resolved MID through
+     * the same proven findAndAddContactsByMid the MID-only path uses, with
+     * the ID-search reference breadcrumb.
+     *
+     * @param userId - LINE ID or `@`-prefixed Official Account basic ID.
+     * @returns `{ added, userId, mid, contact }`.
+     */
+    async addFriendByUserId(userId: string): Promise<any> {
+      const searchId = normalizeLineSearchId(userId)
+      const found = await service.client.findContactByUserid(searchId)
+      const mid = found?.mid
+      if (!mid) {
+        throw new Error(
+          `addFriendByUserId: no contact in response for "${searchId}"`,
+        )
+      }
+      if (found?.displayName) {
+        service.nameCache.set(mid, found.displayName)
+      }
+      const contact = await service.client.findAndAddContactByMid(
+        mid,
+        '{"screen":"friendAdd:idSearch","spec":"native"}',
+      )
+      return { added: true, userId: searchId, mid, contact }
     },
 
     /**

@@ -181,6 +181,7 @@ export class LineClient extends EventEmitter {
     mid: string,
     reference?: string,
   ) => Promise<any>
+  public findContactByUserid!: (searchId: string) => Promise<any>
   public blockContact!: (mid: string) => Promise<boolean>
   public unblockContact!: (mid: string) => Promise<boolean>
   public acceptChatInvitation!: (chatMid: string) => Promise<boolean>

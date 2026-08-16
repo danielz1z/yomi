@@ -54,6 +54,7 @@ import {
   readPreflightForm,
 } from './login-copy.js'
 import { handleLoginMrtr } from './login-mrtr.js'
+import { getPendingQrLogin } from './login-qr-session.js'
 import {
   finishPendingLogin,
   getLivePendingLogin,
@@ -259,6 +260,15 @@ async function handleLoginNoElicitation(
         '`npx @rikaidev/yomi login` once in a terminal. Also tell the human that yomi signs in as a ' +
         `SECOND device, which requires ${PRIMARY_DEVICE_SETTING_PATH} enabled on the phone already ` +
         'logged in — with it off, LINE never prompts that phone and no login can succeed.',
+    )
+  }
+
+  if (getPendingQrLogin()) {
+    // A QR login is still in flight. Two concurrent logins would fight over
+    // the same service state — finish or abandon that one first.
+    return toolError(
+      'A QR login started with `login_qr` is still in progress. Call `login_qr_complete` ' +
+        'to finish it (or wait for its code to expire) before starting a phone-number login.',
     )
   }
 

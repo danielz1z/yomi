@@ -409,6 +409,25 @@ export function buildFindAndAddContactsByMidRequest(
 }
 
 /**
+ * Build the findContactByUserid request fields (search a contact by LINE ID
+ * or Official Account basic ID).
+ *
+ * One of the oldest TalkService methods, so it predates the reqSeq
+ * convention: the search id sits at field 2 and there is NO field 1. (The
+ * thrift args are exactly `{ 2: string searchId }` — see linejs
+ * `findContactByUserid_args` and CHRLINE TalkService.findContactByUserid.)
+ * Unlike RelationService findContactBySearchIdOrTicketV3, which LINE
+ * capability-gates away from desktop clients ("API method not capable" on
+ * DESKTOPMAC), this method is what desktop-class clients may actually call.
+ *
+ * @param searchId - LINE ID or `@`-prefixed Official Account basic ID.
+ * @returns Thrift request fields.
+ */
+export function buildFindContactByUseridRequest(searchId) {
+  return [stringField(2, searchId)]
+}
+
+/**
  * Build a `{ reqSeq, mid }` contact-action request — shared by blockContact and
  * unblockContact, which have identical wire shapes (only the method differs).
  *

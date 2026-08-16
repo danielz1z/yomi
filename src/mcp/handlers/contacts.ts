@@ -130,23 +130,139 @@ export async function handleGetGroupMembers(
 }
 
 /**
- * Handle `add_friend` — REALLY adds a person to THIS account's LINE friends now
- * by MID (TalkService findAndAddContactsByMid).
+ * Classify a thrown contact-search error into the outcome the human needs
+ * named — the three honest answers an ID search can produce:
+ *
+ *   - `invalid`: the input could never be a LINE ID (caught before any
+ *     network call by normalizeLineSearchId).
+ *   - `not_found`: LINE answered TalkException NOT_FOUND ("Cannot find") —
+ *     the ID is well-formed but matches no searchable account.
+ *   - `not_capable`: LINE rejected the METHOD itself for this client
+ *     identity ("API method not capable") — a capability problem to
+ *     report, never a "no match" to paper over.
+ *   - `unknown`: anything else (rate limits, transport, ...) — propagates.
+ *
+ * @param error - Error thrown by the search/add call.
+ * @returns The classified outcome.
+ */
+function classifyContactSearchError(
+  error: any,
+): 'invalid' | 'not_found' | 'not_capable' | 'unknown' {
+  const code = error?.data?.code
+  if (code === 'INVALID_LINE_ID') {
+    return 'invalid'
+  }
+  if (code === 'METHOD_NOT_CAPABLE') {
+    return 'not_capable'
+  }
+  if (code === 'NOT_FOUND' || code === '5' || code === 5) {
+    return 'not_found'
+  }
+  return 'unknown'
+}
+
+/**
+ * Build the honest tool error for a failed ID search, per classification.
+ *
+ * @param userId - The searched ID, echoed so the human can check it.
+ * @param kind - The classified outcome.
+ * @param error - The original error (message used for context).
+ * @returns MCP tool error content.
+ */
+function contactSearchErrorResult(
+  userId: string,
+  kind: 'invalid' | 'not_found' | 'not_capable',
+  error: any,
+) {
+  if (kind === 'invalid') {
+    return toolError(error?.message ?? `"${userId}" is not a valid LINE ID.`)
+  }
+  if (kind === 'not_capable') {
+    return toolError(
+      `LINE does not allow this desktop client to search "${userId}" by ID ` +
+        `(${error?.message ?? 'method not capable'}). This is a LINE-side capability ` +
+        'restriction, not a miss — the account may still exist.',
+    )
+  }
+  return toolError(
+    `No LINE account matches "${userId}". For an Official Account keep the leading "@"; ` +
+      'for a personal account, LINE only resolves an ID the owner has set AND left searchable ' +
+      '(ID search can be turned off).',
+  )
+}
+
+/**
+ * Handle `add_friend` — REALLY adds a person to THIS account's LINE friends
+ * now. Two identifier forms: `mid` (TalkService findAndAddContactsByMid
+ * directly) or `userId` — a LINE ID / Official Account basic ID like
+ * `@shop` — resolved first via TalkService findContactByUserid, then added
+ * by the resolved MID.
+ *
+ * @param service - Resumed LineProtocolService.
+ * @param args - Tool arguments (`mid` xor `userId`).
+ * @returns MCP tool result.
+ */
+export async function handleAddFriend(
+  service: LineProtocolService,
+  args: { mid?: string; userId?: string },
+) {
+  if (!args.mid && !args.userId) {
+    return toolError(
+      'mid or userId is required. Pass a LINE ID (or @OfficialAccount basic ID) as `userId`, or a raw MID as `mid`.',
+    )
+  }
+  if (args.mid && args.userId) {
+    return toolError('Pass only one of mid / userId, not both.')
+  }
+  try {
+    if (args.userId) {
+      const result = await service.addFriendByUserId(args.userId)
+      log.info('add_friend.done', { userId: args.userId, mid: result?.mid })
+      return jsonResult(result)
+    }
+    const result = await service.addFriend(args.mid as string)
+    log.info('add_friend.done', { mid: args.mid })
+    return jsonResult(result)
+  } catch (error: any) {
+    if (args.userId) {
+      const kind = classifyContactSearchError(error)
+      if (kind !== 'unknown') {
+        log.info('add_friend.search_failed', { userId: args.userId, kind })
+        return contactSearchErrorResult(args.userId, kind, error)
+      }
+    }
+    throw error
+  }
+}
+
+/**
+ * Handle `find_contact_by_id` — resolve a LINE ID or Official Account basic
+ * ID to a contact (mid + profile fields) WITHOUT adding it (TalkService
+ * findContactByUserid). Read-only: this handler has no code path that adds.
  *
  * @param service - Resumed LineProtocolService.
  * @param args - Tool arguments.
  * @returns MCP tool result.
  */
-export async function handleAddFriend(
+export async function handleFindContactById(
   service: LineProtocolService,
-  args: { mid: string },
+  args: { userId: string },
 ) {
-  if (!args.mid) {
-    return toolError('mid is required.')
+  if (!args.userId) {
+    return toolError('userId is required.')
   }
-  const result = await service.addFriend(args.mid)
-  log.info('add_friend.done', { mid: args.mid })
-  return jsonResult(result)
+  try {
+    const result = await service.findContactByUserId(args.userId)
+    log.info('find_contact_by_id.done', { userId: args.userId })
+    return jsonResult(result)
+  } catch (error: any) {
+    const kind = classifyContactSearchError(error)
+    if (kind !== 'unknown') {
+      log.info('find_contact_by_id.failed', { userId: args.userId, kind })
+      return contactSearchErrorResult(args.userId, kind, error)
+    }
+    throw error
+  }
 }
 
 /**

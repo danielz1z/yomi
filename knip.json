@@ -3,6 +3,7 @@
   "entry": [
     "src/mcp/server.ts",
     "src/cli/login.ts",
+    "src/cli/login-qr.ts",
     "src/version.ts",
     "scripts/*.mjs",
     "src/**/*.test.ts"
