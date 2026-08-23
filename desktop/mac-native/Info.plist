@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Yomi</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.rikai.yomi</string>
+    <key>CFBundleName</key>
+    <string>Yomi</string>
+    <key>CFBundleDisplayName</key>
+    <string>Yomi</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.4.2</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Yomi 只在你按下麥克風時使用麥克風，將語音轉成可確認後送出的文字。</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Yomi 只在你按下麥克風時使用語音辨識，將語音轉成可確認後送出的文字。</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Yomi 只在你按下相機時使用相機拍攝要送出的圖片。</string>
+</dict>
+</plist>
