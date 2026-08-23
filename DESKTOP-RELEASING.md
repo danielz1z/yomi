@@ -1,0 +1,71 @@
+# Yomi Desktop preview releases
+
+Desktop previews are self-contained installers for non-technical users. They
+bundle Node 24 and a production-only YomiCore, so users never install Node,
+clone this repository, or configure `YOMI_RUN_MJS`.
+
+## Artifacts
+
+- `Yomi-Desktop-macOS-arm64-<version>.dmg`
+- `Yomi-Desktop-Windows-x64-<version>-Setup.exe`
+- one `.sha256` file beside each installer
+
+The default lite bundle omits Transformers and ONNX Runtime. LINE access,
+keyword search, and coding-tool workflows remain available; semantic search is
+reserved for a later on-demand feature pack. The unpacked core has a 220 MB
+hard limit, and each compressed installer has a 120 MB hard limit.
+
+## Required GitHub Actions secrets
+
+### macOS
+
+- `MACOS_CERTIFICATE_BASE64`: base64-encoded Developer ID Application `.p12`
+- `MACOS_CERTIFICATE_PASSWORD`: password protecting the `.p12`
+- `MACOS_KEYCHAIN_PASSWORD`: temporary CI keychain password
+- `MACOS_SIGNING_IDENTITY`: full `Developer ID Application: ... (TEAMID)` name
+- `APPLE_ID`: Apple developer account email
+- `APPLE_TEAM_ID`: Apple Developer team identifier
+- `APPLE_APP_PASSWORD`: app-specific password used by `notarytool`
+
+### Windows
+
+- `WINDOWS_CERTIFICATE_BASE64`: base64-encoded trusted code-signing `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD`: password protecting the `.pfx`
+
+Move Windows signing to Microsoft Trusted Signing when the RikaiDev Azure
+identity and certificate profile are ready. The release workflow deliberately
+fails rather than publishing an unsigned installer.
+
+## Local macOS packaging rehearsal
+
+An unsigned rehearsal proves the bundle, DMG, size gate, and mounted-image
+smoke test. It must never be uploaded for users.
+
+```bash
+npm run build
+YOMI_ALLOW_UNSIGNED_PREVIEW=1 \
+YOMI_NODE_BINARY="$HOME/.nvm/versions/node/v24.14.0/bin/node" \
+bash scripts/build-macos-desktop-release.sh
+```
+
+## Publishing
+
+Desktop tags share the core version and add a preview suffix:
+
+```bash
+git tag desktop-v0.4.2-alpha.1
+git push origin desktop-v0.4.2-alpha.1
+```
+
+`.github/workflows/desktop-preview.yml` then:
+
+1. runs core quality gates;
+2. builds the macOS DMG and Windows Setup.exe on their native runners;
+3. signs both products;
+4. notarizes and staples the macOS app;
+5. installs or mounts the finished package and runs its bundled core;
+6. enforces size budgets and generates SHA-256 files; and
+7. creates a GitHub pre-release only after both platforms pass.
+
+The npm and MCPB release workflows ignore `desktop-v*` releases. Their normal
+`v<version>` release flow remains unchanged.

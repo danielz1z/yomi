@@ -211,7 +211,11 @@ class AiConfigManager {
 class YomiPathResolver {
     static func findNodePath() -> String? {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
-        let nodeCandidates = [
+        var nodeCandidates: [String] = []
+        if let resources = Bundle.main.resourceURL {
+            nodeCandidates.append(resources.appendingPathComponent("runtime/node").path)
+        }
+        nodeCandidates += [
             "\(home)/.local/bin/bun",
             "\(home)/.local/bin/node",
             "/opt/homebrew/bin/bun",
@@ -229,7 +233,14 @@ class YomiPathResolver {
 
         var candidateDirs: [String] = []
 
-        // 1. From App Bundle
+        // A distributed desktop build carries its own production-only core.
+        // Prefer it over every development fallback so the app never depends
+        // on the repository or a global npm installation on an end-user Mac.
+        if let resources = Bundle.main.resourceURL {
+            candidateDirs.append(resources.appendingPathComponent("YomiCore").path)
+        }
+
+        // Development fallbacks follow the bundled runtime candidate.
         let bundleUrl = URL(fileURLWithPath: Bundle.main.bundlePath)
         candidateDirs.append(bundleUrl.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path)
         candidateDirs.append(bundleUrl.deletingLastPathComponent().deletingLastPathComponent().path)

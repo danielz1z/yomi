@@ -38,6 +38,9 @@ if (!source.includes('APPDATA') || !source.includes('target_os = "windows"')) {
 if (!source.includes('Command::new("cmd")') || !source.includes('target_os = "windows"')) {
   fail('Windows default-browser integration is missing')
 }
+if (!source.includes('join("YomiCore").join("run.mjs")') || !source.includes('"node.exe"')) {
+  fail('Windows release must resolve the bundled Node and YomiCore runtime')
+}
 for (const provider of ['codex', 'claude', 'antigravity', 'opencode', 'ollama']) {
   if (!source.includes(`id: "${provider}"`)) fail(`coding provider is not wired: ${provider}`)
 }

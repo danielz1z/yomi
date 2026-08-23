@@ -228,14 +228,36 @@ struct YomiServerConfig {
 }
 
 fn yomi_server_config(cwd: &Path) -> Option<YomiServerConfig> {
+    let executable_root = env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
     let run_mjs = env::var("YOMI_RUN_MJS")
         .ok()
         .map(PathBuf::from)
         .or_else(|| {
+            executable_root
+                .as_ref()
+                .map(|root| root.join("YomiCore").join("run.mjs"))
+                .filter(|candidate| candidate.exists())
+        })
+        .or_else(|| {
             let candidate = cwd.join("run.mjs");
             candidate.exists().then_some(candidate)
         })?;
-    let command = env::var("YOMI_NODE_PATH").unwrap_or_else(|_| "node".to_string());
+    let command = env::var("YOMI_NODE_PATH").unwrap_or_else(|_| {
+        executable_root
+            .as_ref()
+            .map(|root| {
+                root.join("runtime").join(if cfg!(target_os = "windows") {
+                    "node.exe"
+                } else {
+                    "node"
+                })
+            })
+            .filter(|candidate| candidate.exists())
+            .map(|candidate| candidate.to_string_lossy().to_string())
+            .unwrap_or_else(|| "node".to_string())
+    });
     let run_mjs_string = run_mjs.to_string_lossy().to_string();
     let json = json!({
         "mcpServers": {

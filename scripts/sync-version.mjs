@@ -9,6 +9,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const versionFile = new URL('../src/version.ts', import.meta.url);
+const infoPlistFile = new URL('../desktop/mac-native/Info.plist', import.meta.url);
+const cargoFile = new URL('../desktop/Cargo.toml', import.meta.url);
 const src = readFileSync(versionFile, 'utf8');
 
 // No trailing \s* here: it would match the file's final newline and the
@@ -24,4 +26,27 @@ const next = src.replace(pattern, `$1${pkg.version}$2`);
 if (next !== src) {
   writeFileSync(versionFile, next);
 }
-console.log(`sync-version: src/version.ts YOMI_VERSION -> ${pkg.version}`);
+
+const infoPlist = readFileSync(infoPlistFile, 'utf8');
+const nextInfoPlist = infoPlist.replace(
+  /(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]+(<\/string>)/,
+  `$1${pkg.version}$2`,
+).replace(
+  /(<key>CFBundleVersion<\/key>\s*<string>)[^<]+(<\/string>)/,
+  `$1${pkg.version}$2`,
+);
+if (nextInfoPlist === infoPlist && !infoPlist.includes(`<string>${pkg.version}</string>`)) {
+  console.error('sync-version: could not update CFBundleShortVersionString');
+  process.exit(1);
+}
+writeFileSync(infoPlistFile, nextInfoPlist);
+
+const cargo = readFileSync(cargoFile, 'utf8');
+const nextCargo = cargo.replace(/^(version = ")[^"]+("$)/m, `$1${pkg.version}$2`);
+if (nextCargo === cargo && !cargo.includes(`version = "${pkg.version}"`)) {
+  console.error('sync-version: could not update desktop/Cargo.toml version');
+  process.exit(1);
+}
+writeFileSync(cargoFile, nextCargo);
+
+console.log(`sync-version: core and desktop versions -> ${pkg.version}`);

@@ -89,6 +89,7 @@ assertSource(nativeText.includes('private var isDecryptFailure: Bool') && native
 assertSource(nativeText.includes('let naturalWidth = ceil(') && nativeText.includes('let width = min(maximumWidth'), 'text bubbles must size to content before reaching their maximum width')
 assertSource(nativeText.includes('private var richCard: some View') && nativeText.includes('HStack(alignment: hasMedia ? .top : .bottom'), 'Flex media and caption must render as one top-aligned card')
 assertSource(nativeText.includes('DesktopChatSnapshot') && nativeText.includes('chat-list-v1.json'), 'desktop startup must paint a bounded local chat snapshot before syncing')
+assertSource(nativeText.includes('appendingPathComponent("runtime/node")') && nativeText.includes('appendingPathComponent("YomiCore")'), 'distributed desktop builds must prefer their bundled Node and YomiCore runtime')
 assertSource(nativeText.includes('guard !chatRefreshInFlight else { return }'), 'chat loading must coalesce duplicate startup requests')
 assertSource(nativeText.includes('withTimeInterval: 30.0') && nativeText.includes('if nextChats != self.chats'), 'background polling must avoid high-frequency no-op publishes')
 assertSource(nativeText.includes('attentionNow') && nativeText.includes('attentionToday') && nativeText.includes('attentionKnow'), 'attention tiers must use a semantic urgency palette')

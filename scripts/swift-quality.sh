@@ -12,6 +12,7 @@ done < <(find desktop/mac-native -name '*.swift' -type f -not -path '*/Yomi.app/
 xcrun swift-format lint --recursive --parallel --strict --no-color-diagnostics --configuration .swift-format desktop/mac-native
 
 swiftc \
+  -target "$(uname -m)-apple-macos14.0" \
   -warnings-as-errors \
   -warn-concurrency \
   -strict-concurrency=complete \

@@ -1,0 +1,134 @@
+name: desktop-preview
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Verify desktop tag matches the core version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          case "${GITHUB_REF_NAME}" in
+            "desktop-v${VERSION}"-*) ;;
+            *) echo "::error::desktop tag must start with desktop-v${VERSION}-"; exit 1 ;;
+          esac
+
+  macos:
+    needs: quality
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          test -n "$MACOS_CERTIFICATE_BASE64"
+          CERT="$RUNNER_TEMP/yomi-developer-id.p12"
+          KEYCHAIN="$RUNNER_TEMP/yomi-signing.keychain-db"
+          echo "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$CERT"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+
+      - name: Build, sign, notarize, and package DMG
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          YOMI_NODE_BINARY: ${{ env.NODE_HOME }}/bin/node
+        run: |
+          export YOMI_NODE_BINARY="$(command -v node)"
+          bash scripts/build-macos-desktop-release.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomi-desktop-macos
+          path: |
+            build/desktop-release/macos-arm64/*.dmg
+            build/desktop-release/macos-arm64/*.sha256
+          if-no-files-found: error
+
+  windows:
+    needs: quality
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - run: bun install --frozen-lockfile
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build, sign, and package Setup.exe
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./scripts/build-windows-desktop-release.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomi-desktop-windows
+          path: |
+            build/desktop-release/windows-x64/*-Setup.exe
+            build/desktop-release/windows-x64/*.sha256
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: yomi-desktop-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --title "Yomi Desktop ${GITHUB_REF_NAME#desktop-v}" \
+            --notes "Experimental native desktop preview for macOS and Windows. Unofficial software: LINE changes may break compatibility, and using an additional client may put an account at risk. Prefer a test account and keep a current backup."
