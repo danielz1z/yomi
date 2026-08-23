@@ -7,7 +7,7 @@ const log = createCliLogger('Yomi')
 /**
  * Handle `react_message` — REALLY adds a predefined reaction to a real LINE
  * message now (TalkService react). Visible to the conversation. `reactionType`:
- * 2=LIKE 👍, 3=LOVE ❤️, 4=LAUGH 😆, 5=SURPRISE 😮, 6=SAD 😢, 7=ANGRY 😡
+ * Protocol emoji mapping: 2=LIKE 👍, 3=LOVE ❤️, 4=LAUGH 😆, 5=SURPRISE 😮, 6=SAD 😢, 7=ANGRY 😡
  * (default 2).
  *
  * @param service - Resumed LineProtocolService.

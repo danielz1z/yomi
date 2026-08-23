@@ -1,5 +1,5 @@
 /**
- * The relationship layer: who you talk to, how, and how often — the 對象/關係
+ * The relationship layer: who you talk to, how, and how often — the contact/relationship
  * axis of the analysis, built purely from interaction structure (no message
  * content). This is unsupervised context for the agent's final judgement, not a
  * judgement itself.

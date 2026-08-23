@@ -97,6 +97,9 @@ export interface CliChatMessageJsonItem {
   mediaUrl: string | null;
   actionUrl?: string | null;
   fileName: string | null;
+  isDecryptFailure: boolean;
+  isUnsent: boolean;
+  mentionRanges: Array<{ location: number; length: number }>;
 }
 
 export interface CliStickerPreviewJson {
@@ -236,6 +239,29 @@ export function messagePlaceholder(contentType: number, hasOpaquePayload = false
     case 3: return '[語音訊息]'
     case 14: return '[檔案]'
     default: return hasOpaquePayload ? '[加密訊息]' : `[LINE 內容 ${contentType}]`
+  }
+}
+
+export function messageFallback(message: any): string {
+  if (message?.contentMetadata?.UNSENT === 'true') return '訊息已收回';
+  return message?.e2eeDecryptFailure
+    ? '[無法解密的訊息]'
+    : messagePlaceholder(Number(message?.contentType || 0), Boolean(message?.text));
+}
+
+function parseMentionRanges(metadata: Record<string, unknown>): Array<{ location: number; length: number }> {
+  if (typeof metadata.MENTION !== 'string') return [];
+  try {
+    const parsed = JSON.parse(metadata.MENTION) as { MENTIONEES?: Array<{ S?: string; E?: string }> };
+    return (parsed.MENTIONEES || []).flatMap((mention) => {
+      const location = Number(mention.S);
+      const end = Number(mention.E);
+      return Number.isInteger(location) && Number.isInteger(end) && end > location
+        ? [{ location, length: end - location }]
+        : [];
+    });
+  } catch {
+    return [];
   }
 }
 
@@ -506,7 +532,7 @@ export async function cliGetChatMessagesJson(chatId: string, count = 30): Promis
       if (contentType === 18) text = interpretChatEvent(m, names);
       if (rich?.altText) text = rich.altText;
       if (!text) {
-        text = messagePlaceholder(contentType, Boolean(m.text));
+        text = messageFallback(m);
       }
 
       const timestamp = Number(m.deliveredTime || m.createdTime || 0);
@@ -538,6 +564,9 @@ export async function cliGetChatMessagesJson(chatId: string, count = 30): Promis
           || (typeof metadata.FILE_NAME === 'string' ? metadata.FILE_NAME : null)
           || (typeof metadata.FILE_NAME_ORIGINAL === 'string' ? metadata.FILE_NAME_ORIGINAL : null)
           || (typeof metadata.name === 'string' ? metadata.name : null),
+        isDecryptFailure: Boolean(m.e2eeDecryptFailure),
+        isUnsent: metadata.UNSENT === 'true',
+        mentionRanges: parseMentionRanges(metadata),
       };
     });
 

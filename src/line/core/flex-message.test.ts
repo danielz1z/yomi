@@ -33,3 +33,13 @@ test('rejects unsafe Flex action schemes', () => {
     type: 'uri', label: '不要執行', uri: 'javascript:alert(1)',
   } }).actionUrl).toBeNull()
 })
+
+test('does not expose machine-only uri labels as visible copy', () => {
+  const result = interpretFlexPayload({
+    type: 'bubble',
+    hero: { type: 'image', url: 'https://example.com/card.jpg' },
+    action: { type: 'uri', label: 'uri', uri: 'https://example.com/open' },
+  })
+  expect(result.summary).toBe('')
+  expect(result.actionUrl).toBe('https://example.com/open')
+})

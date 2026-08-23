@@ -3,11 +3,11 @@
  *
  * The FTS5 `unicode61` tokenizer has no Chinese/Japanese/Korean word
  * segmentation: a whole CJK run collapses into a single opaque token, so a
- * substring like "會議" inside "會議通知" never matches. Yomi has no ICU
+ * two-character CJK substring inside a longer CJK term never matches. Yomi has no ICU
  * tokenizer available and takes on no new dependency to get one, so instead
  * both the indexed text and the search query are rewritten into overlapping
  * character bigrams for CJK runs before ever reaching FTS5. Overlapping
- * bigrams turn "會議通知" into "會議 議通 通知" — searching for "會議"
+ * overlapping bigrams preserve exact two-character search terms inside longer CJK text
  * (itself a single bigram once transformed) becomes a plain token match.
  * This covers the common case of 2+ character CJK words; single-character
  * CJK terms still match via the emitted unigram.

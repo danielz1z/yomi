@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { messagePlaceholder, richFields, sanitizeMessagePreview } from './query.js'
+import { messageFallback, messagePlaceholder, richFields, sanitizeMessagePreview } from './query.js'
 
 test('sanitizes E2EE envelope previews without leaking key material', () => {
   const envelope = JSON.stringify({
@@ -73,6 +73,11 @@ test('names every known non-text LINE content type without generic fallback copy
   expect(messagePlaceholder(13)).toBe('[聯絡人]')
   expect(messagePlaceholder(999)).toBe('[LINE 內容 999]')
   expect(messagePlaceholder(22)).not.toContain('非文字訊息')
+})
+
+test('labels authenticated-decryption failures honestly', () => {
+  expect(messageFallback({ contentType: 0, text: null, e2eeDecryptFailure: { reason: 'gcm_auth_failed' } }))
+    .toBe('[無法解密的訊息]')
 })
 
 test('richFields interprets Flex JSON instead of returning an attachment placeholder', () => {

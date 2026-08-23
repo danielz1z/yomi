@@ -331,7 +331,7 @@ export function buildCreateChatRequest(name, mids, chatType = 1) {
  * Single struct arg at field 1: `{ reqSeq, messageId, reactionType{ predefined } }`.
  * The messageId is a thrift i64 (LINE message ids are 64-bit), so it is passed
  * as a BigInt. `reactionType` is LINE's predefinedReactionType enum:
- * 2 = LIKE 👍, 3 = LOVE ❤️, 4 = LAUGH 😆, 5 = SURPRISE 😮, 6 = SAD 😢, 7 = ANGRY 😡.
+ * Protocol emoji mapping: 2 = LIKE 👍, 3 = LOVE ❤️, 4 = LAUGH 😆, 5 = SURPRISE 😮, 6 = SAD 😢, 7 = ANGRY 😡.
  *
  * @param messageId - Target message id (numeric string).
  * @param reactionType - Predefined reaction type (default 2 = LIKE).

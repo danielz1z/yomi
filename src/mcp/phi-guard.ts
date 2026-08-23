@@ -21,7 +21,7 @@ export interface PhiAccumulator {
   types: Set<string>
 }
 
-/** Middle-redaction marker used in masked values (Q12〇〇9 style). */
+/** Middle-redaction marker used in masked values (for example, Q12••9). */
 const MASK_MIDDLE = '〇〇'
 
 /**
@@ -45,7 +45,7 @@ function passesLuhn(digits: string): boolean {
 }
 
 /**
- * Mask one matched value, preserving a little edge context (Q12〇〇9): the
+ * Mask one matched value, preserving a little edge context (for example, Q12••9): the
  * first few characters and, for longer values, the last one.
  * @param value - The raw matched substring.
  * @returns The masked substring.

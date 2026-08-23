@@ -43,6 +43,8 @@
     "start": "node run.mjs",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
+    "lint:comments": "node scripts/lint-comments.mjs",
+    "pretest": "npm run lint:comments",
     "format": "biome format --write src/",
     "test": "bun test",
     "version": "node scripts/sync-version.mjs && git add src/version.ts",

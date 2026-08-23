@@ -149,9 +149,16 @@ switch (cmd) {
       process.exit(1);
     }
     const { LineProtocolService } = await load('line/core/service');
+    const { buildMentionMetadata } = await load('line/core/mention');
     const service = new LineProtocolService();
     if (!(await service.resumeSession())) process.exit(1);
-    const sent = await service.sendMessage(chatId, text);
+    const targets = JSON.parse(process.env.YOMI_MENTIONS_JSON || '[]');
+    const mentions = targets.flatMap(({ mid, name }) => {
+      const start = text.indexOf(`@${name}`);
+      return start < 0 ? [] : [{ mid, start, end: start + name.length + 1 }];
+    });
+    const metadata = mentions.length ? { MENTION: buildMentionMetadata(text, mentions) } : undefined;
+    const sent = await service.sendMessage(chatId, text, metadata);
     console.log(JSON.stringify({
       sent: true,
       messageId: sent?.id ?? sent?.messageId ?? null,
@@ -219,7 +226,7 @@ switch (cmd) {
     const { fetchLineMessageMedia } = await load('mcp/media');
     const service = new LineProtocolService();
     if (!(await service.resumeSession())) process.exit(1);
-    const result = await fetchLineMessageMedia(service, chatId, messageId, true);
+    const result = await fetchLineMessageMedia(service, chatId, messageId, args[3] !== 'original');
     console.log(JSON.stringify({
       data: result.bytes.toString('base64'),
       mimeType: result.mimeType,

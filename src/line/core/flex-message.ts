@@ -73,8 +73,10 @@ export function interpretFlexPayload(payload: unknown): FlexMessageInterpretatio
   }
 
   walk(payload)
+  const machineLabels = new Set(['uri', 'url', 'link', 'open', 'action'])
   const actionLabels = actions.map((item) => item.label).filter(Boolean)
-  const readable = [...texts, ...actionLabels.filter((label) => !texts.includes(label))]
+  const readableActionLabels = actionLabels.filter((label) => !machineLabels.has(label.toLowerCase()))
+  const readable = [...texts, ...readableActionLabels.filter((label) => !texts.includes(label))]
   return {
     summary: readable.join(' · ').slice(0, 700),
     imageUrl: images[0] ?? null,
