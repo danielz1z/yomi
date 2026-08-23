@@ -80,14 +80,26 @@ export async function performPwlessLogin(
     service.profile = await service.client.getProfile()
     if (service.profile) {
       if (service.profile.displayName) {
-        await service.credentialStore.set('displayName', service.profile.displayName)
+        await service.credentialStore.set(
+          'displayName',
+          service.profile.displayName,
+        )
       }
       if (service.profile.picturePath) {
-        await service.credentialStore.set('picturePath', service.profile.picturePath)
-        await service.credentialStore.set('pictureUrl', `https://obs.line-scdn.net/${service.profile.picturePath}`)
+        await service.credentialStore.set(
+          'picturePath',
+          service.profile.picturePath,
+        )
+        await service.credentialStore.set(
+          'pictureUrl',
+          `https://obs.line-scdn.net/${service.profile.picturePath}`,
+        )
       }
       if (service.profile.statusMessage) {
-        await service.credentialStore.set('statusMessage', service.profile.statusMessage)
+        await service.credentialStore.set(
+          'statusMessage',
+          service.profile.statusMessage,
+        )
       }
     }
     // Display name only — do not print the mid alongside it.

@@ -43,4 +43,3 @@ test('legacy image without OID/SID is fetched from OBS by message id', async () 
     globalThis.fetch = originalFetch
   }
 })
-

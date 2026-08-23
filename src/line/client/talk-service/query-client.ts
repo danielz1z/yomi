@@ -285,6 +285,5 @@ export function createTalkQueryClient(runtime) {
       logRecentMessagesResponse(chatId, count, raw, messages)
       return messages
     },
-
   }
 }

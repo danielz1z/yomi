@@ -6,7 +6,8 @@
  * boundary must be shared by every conversation/message output path so a raw
  * message cannot bypass the decrypted-path sanitizer.
  */
-const OPAQUE_FIELD = /(?:^|["'\s,{])(keymaterial|keys|chunks|ciphertext|nonce)\s*["']?\s*:/i
+const OPAQUE_FIELD =
+  /(?:^|["'\s,{])(keymaterial|keys|chunks|ciphertext|nonce)\s*["']?\s*:/i
 const OPAQUE_TOKEN = /\b(?:keymaterial|ciphertext|nonce)\b/i
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -15,12 +16,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function containsOpaqueField(value: unknown): boolean {
   if (typeof value === 'string') {
-    return OPAQUE_FIELD.test(value) || (value.trim().startsWith('{') && OPAQUE_TOKEN.test(value))
+    return (
+      OPAQUE_FIELD.test(value) ||
+      (value.trim().startsWith('{') && OPAQUE_TOKEN.test(value))
+    )
   }
   if (Array.isArray(value)) return value.some(containsOpaqueField)
   if (!isRecord(value)) return false
-  return Object.entries(value).some(([key, nested]) =>
-    /^(keymaterial|keys|chunks|ciphertext|nonce)$/i.test(key) || containsOpaqueField(nested),
+  return Object.entries(value).some(
+    ([key, nested]) =>
+      /^(keymaterial|keys|chunks|ciphertext|nonce)$/i.test(key) ||
+      containsOpaqueField(nested),
   )
 }
 
@@ -53,4 +59,3 @@ export function sanitizeMessagePreview(value: unknown): string {
     return text
   }
 }
-

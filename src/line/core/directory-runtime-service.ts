@@ -57,9 +57,9 @@ export function createDirectoryRuntimeService(service: any) {
       const owned = await service.client.getOwnedStickerPackages(language)
       return Promise.all(
         owned.map(async (pkg: any) => {
-          const meta = await fetchStickerPackageMeta(String(pkg.packageId)).catch(
-            () => null,
-          )
+          const meta = await fetchStickerPackageMeta(
+            String(pkg.packageId),
+          ).catch(() => null)
           return {
             ...pkg,
             title: localizedStickerTitle(meta?.title, language, pkg.title),

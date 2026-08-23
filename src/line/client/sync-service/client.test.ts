@@ -17,7 +17,11 @@ describe('LINE sync checkpoints', () => {
   })
 
   test('never moves a valid checkpoint backwards', () => {
-    const runtime = { revision: 1726279, globalRevision: 4, individualRevision: 8 }
+    const runtime = {
+      revision: 1726279,
+      globalRevision: 4,
+      individualRevision: 8,
+    }
     updateSyncRevisions(runtime, {
       1: { 1: [], 2: 3, 3: 7 },
       2: 1726278,

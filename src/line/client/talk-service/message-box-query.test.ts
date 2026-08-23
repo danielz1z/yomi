@@ -7,8 +7,20 @@ import {
 describe('message-box pagination helpers', () => {
   test('deduplicates pages while retaining the latest row', () => {
     const merged = mergeMessageBoxPages([
-      { messageBoxes: [{ id: 'u-old', unreadCount: 1 }, { id: 'u-dup', unreadCount: 1 }], hasNext: true },
-      { messageBoxes: [{ id: 'u-dup', unreadCount: 4 }, { id: 'u-new', unreadCount: 0 }], hasNext: false },
+      {
+        messageBoxes: [
+          { id: 'u-old', unreadCount: 1 },
+          { id: 'u-dup', unreadCount: 1 },
+        ],
+        hasNext: true,
+      },
+      {
+        messageBoxes: [
+          { id: 'u-dup', unreadCount: 4 },
+          { id: 'u-new', unreadCount: 0 },
+        ],
+        hasNext: false,
+      },
     ])
     expect(merged.map((item) => item.id)).toEqual(['u-old', 'u-dup', 'u-new'])
     expect(merged[1].unreadCount).toBe(4)

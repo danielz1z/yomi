@@ -1,5 +1,5 @@
-import { decryptLineMessage } from '../../line/core/message-query-service.js'
 import { sanitizeMessagePreview } from '../../line/core/message-preview.js'
+import { decryptLineMessage } from '../../line/core/message-query-service.js'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { getExcludedChatIds } from '../../search/scope.js'
 import { createCliLogger } from '../../util/log.js'
@@ -17,7 +17,9 @@ function messageTimestamp(message: any): number {
 function latestMessage(messages: any[] | undefined): any | null {
   if (!Array.isArray(messages) || messages.length === 0) return null
   return messages.reduce((latest, candidate) =>
-    messageTimestamp(candidate) >= messageTimestamp(latest) ? candidate : latest,
+    messageTimestamp(candidate) >= messageTimestamp(latest)
+      ? candidate
+      : latest,
   )
 }
 
@@ -64,11 +66,17 @@ export async function handleListConversations(
     boxes.map(async (box: any) => {
       let lastMessage = latestMessage(box.lastMessages)
       const cursorTime = Number(box.lastDeliveredMessageId?.deliveredTime || 0)
-      if (box.id && (!lastMessage || messageTimestamp(lastMessage) < cursorTime)) {
+      if (
+        box.id &&
+        (!lastMessage || messageTimestamp(lastMessage) < cursorTime)
+      ) {
         try {
           const recent = await service.getRecentMessages(box.id, 1)
           const candidate = latestMessage(recent)
-          if (candidate && messageTimestamp(candidate) >= messageTimestamp(lastMessage)) {
+          if (
+            candidate &&
+            messageTimestamp(candidate) >= messageTimestamp(lastMessage)
+          ) {
             lastMessage = candidate
           }
         } catch {}
@@ -76,10 +84,15 @@ export async function handleListConversations(
       const decryptedLastMessage = lastMessage
         ? await decryptLineMessage(service.e2eeManager, lastMessage, box.id)
         : null
-      const previewText = sanitizeMessagePreview(decryptedLastMessage?.text ?? lastMessage?.text)
+      const previewText = sanitizeMessagePreview(
+        decryptedLastMessage?.text ?? lastMessage?.text,
+      )
       return {
         id: box.id,
-        lastMessagePreview: maskInto(acc, previewText || (lastMessage?.text ? '[加密訊息]' : null)),
+        lastMessagePreview: maskInto(
+          acc,
+          previewText || (lastMessage?.text ? '[加密訊息]' : null),
+        ),
         name: names.get(box.id) ?? null,
         unreadCount: box.unreadCount ?? 0,
       }
@@ -165,7 +178,11 @@ export async function handleGetChatMessages(
     // be observed against a live mentioning message before anyone builds
     // the outbound (send-a-mention) side.
     mentions: message.contentMetadata?.MENTION ?? null,
-    text: maskInto(acc, sanitizeMessagePreview(message.text) || (message.text ? '[加密訊息]' : null)),
+    text: maskInto(
+      acc,
+      sanitizeMessagePreview(message.text) ||
+        (message.text ? '[加密訊息]' : null),
+    ),
     e2eeDecrypted: message.e2eeDecrypted ?? null,
     // Emitted ONLY when the message decrypted but could not be authenticated
     // (LINE E2EE v1 — AES-CBC, no tag, no AAD), so its presence is a signal
@@ -253,7 +270,10 @@ export async function handleGetUnreadDigest(
             resolveLineMediaDescriptor(m) !== null
               ? resolveLineMediaType(Number(m.contentType))
               : null,
-          text: maskInto(acc, sanitizeMessagePreview(m.text) || (m.text ? '[加密訊息]' : null)),
+          text: maskInto(
+            acc,
+            sanitizeMessagePreview(m.text) || (m.text ? '[加密訊息]' : null),
+          ),
         })),
       }
     }),

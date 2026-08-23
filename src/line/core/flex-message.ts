@@ -5,25 +5,41 @@ export interface FlexMessageInterpretation {
   actionLabels: string[]
 }
 
-const FLEX_PAYLOAD_KEYS = ['FLEX_JSON', 'FLEX_CONTENTS', 'FLEX_MESSAGE', 'CONTENTS', 'MARKUP_JSON'] as const
+const FLEX_PAYLOAD_KEYS = [
+  'FLEX_JSON',
+  'FLEX_CONTENTS',
+  'FLEX_MESSAGE',
+  'CONTENTS',
+  'MARKUP_JSON',
+] as const
 
 function parseObject(value: unknown): unknown {
   if (typeof value !== 'string') return value
   const trimmed = value.trim()
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null
-  try { return JSON.parse(trimmed) } catch { return null }
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return null
+  }
 }
 
 function webUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   try {
     const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null
-  } catch { return null }
+    return url.protocol === 'http:' || url.protocol === 'https:'
+      ? url.toString()
+      : null
+  } catch {
+    return null
+  }
 }
 
 /** Interpret LINE bubble/carousel content in header→hero→body→footer order. */
-export function interpretFlexPayload(payload: unknown): FlexMessageInterpretation {
+export function interpretFlexPayload(
+  payload: unknown,
+): FlexMessageInterpretation {
   const texts: string[] = []
   const images: string[] = []
   const actions: Array<{ label: string; url: string | null }> = []
@@ -58,16 +74,30 @@ export function interpretFlexPayload(payload: unknown): FlexMessageInterpretatio
     const action = parseObject(node.action)
     if (action && typeof action === 'object' && !Array.isArray(action)) {
       const record = action as Record<string, unknown>
-      const label = [record.label, record.displayText, record.text]
-        .find((item): item is string => typeof item === 'string' && item.trim().length > 0) ?? ''
+      const label =
+        [record.label, record.displayText, record.text].find(
+          (item): item is string =>
+            typeof item === 'string' && item.trim().length > 0,
+        ) ?? ''
       const url = webUrl(record.uri)
       if (label || url) actions.push({ label: label.trim(), url })
     }
 
-    const ordered = ['header', 'hero', 'body', 'footer', 'contents', 'altContent']
+    const ordered = [
+      'header',
+      'hero',
+      'body',
+      'footer',
+      'contents',
+      'altContent',
+    ]
     for (const key of ordered) if (key in node) walk(node[key], depth + 1)
     for (const [key, child] of Object.entries(node)) {
-      if (ordered.includes(key) || ['action', 'type', 'text', 'url', 'previewUrl'].includes(key)) continue
+      if (
+        ordered.includes(key) ||
+        ['action', 'type', 'text', 'url', 'previewUrl'].includes(key)
+      )
+        continue
       if (child && typeof child === 'object') walk(child, depth + 1)
     }
   }
@@ -75,8 +105,13 @@ export function interpretFlexPayload(payload: unknown): FlexMessageInterpretatio
   walk(payload)
   const machineLabels = new Set(['uri', 'url', 'link', 'open', 'action'])
   const actionLabels = actions.map((item) => item.label).filter(Boolean)
-  const readableActionLabels = actionLabels.filter((label) => !machineLabels.has(label.toLowerCase()))
-  const readable = [...texts, ...readableActionLabels.filter((label) => !texts.includes(label))]
+  const readableActionLabels = actionLabels.filter(
+    (label) => !machineLabels.has(label.toLowerCase()),
+  )
+  const readable = [
+    ...texts,
+    ...readableActionLabels.filter((label) => !texts.includes(label)),
+  ]
   return {
     summary: readable.join(' · ').slice(0, 700),
     imageUrl: images[0] ?? null,
@@ -86,15 +121,21 @@ export function interpretFlexPayload(payload: unknown): FlexMessageInterpretatio
 }
 
 export function interpretFlexMessage(message: any): FlexMessageInterpretation {
-  const metadata = message?.contentMetadata && typeof message.contentMetadata === 'object'
-    ? message.contentMetadata as Record<string, unknown>
-    : {}
+  const metadata =
+    message?.contentMetadata && typeof message.contentMetadata === 'object'
+      ? (message.contentMetadata as Record<string, unknown>)
+      : {}
   for (const key of FLEX_PAYLOAD_KEYS) {
     const parsed = parseObject(metadata[key])
     if (parsed) return interpretFlexPayload(parsed)
   }
   const textPayload = parseObject(message?.text)
-  return textPayload ? interpretFlexPayload(textPayload) : {
-    summary: '', imageUrl: null, actionUrl: null, actionLabels: [],
-  }
+  return textPayload
+    ? interpretFlexPayload(textPayload)
+    : {
+        summary: '',
+        imageUrl: null,
+        actionUrl: null,
+        actionLabels: [],
+      }
 }

@@ -133,7 +133,14 @@ You have real-time access to the user's LINE account through the Yomi Letter-Sea
 
   const skillDirs = [
     join(home, '.claude', 'skills', 'yomi-line-manager'),
-    join(home, '.gemini', 'antigravity-cli', 'builtin', 'skills', 'yomi-line-manager'),
+    join(
+      home,
+      '.gemini',
+      'antigravity-cli',
+      'builtin',
+      'skills',
+      'yomi-line-manager',
+    ),
     join(home, '.codex', 'skills', 'yomi-line-manager'),
   ]
 

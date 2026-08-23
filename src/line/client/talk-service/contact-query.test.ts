@@ -3,7 +3,9 @@ import { mapContactList } from './contact-query.js'
 
 describe('contact notification and official flags', () => {
   test('maps official account mute settings from fields 35 and 36', () => {
-    const [contact] = mapContactList([{ 1: 'u-official', 35: 32, 36: 1 }]) as any[]
+    const [contact] = mapContactList([
+      { 1: 'u-official', 35: 32, 36: 1 },
+    ]) as any[]
     expect(contact.attributes).toBe(32)
     expect(contact.settings).toBe(1)
     expect(contact.isOfficial).toBe(true)

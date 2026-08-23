@@ -241,7 +241,7 @@ export class CredentialStore {
     try {
       const fs = await import('node:fs/promises')
       const fileData = await fs.readFile(this.filePath, 'utf-8')
-      if (fileData && fileData.trim()) {
+      if (fileData?.trim()) {
         return fileData
       }
     } catch {}
@@ -253,7 +253,10 @@ export class CredentialStore {
       if (result.success && result.password) {
         try {
           const fs = await import('node:fs/promises')
-          await fs.mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 })
+          await fs.mkdir(dirname(this.filePath), {
+            recursive: true,
+            mode: 0o700,
+          })
           await fs.writeFile(this.filePath, result.password, { mode: 0o600 })
         } catch {}
         return result.password

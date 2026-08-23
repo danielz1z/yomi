@@ -59,4 +59,3 @@ test('legacy Talk media routes original content without preview suffix', async (
     globalThis.fetch = originalFetch
   }
 })
-

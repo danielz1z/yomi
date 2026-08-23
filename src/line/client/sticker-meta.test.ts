@@ -19,7 +19,9 @@ describe('localizedStickerTitle', () => {
   })
 
   test('falls back to English, then first title, then shop title', () => {
-    expect(localizedStickerTitle({ ja: '日本語' }, 'zh-TW', 'Shop title')).toBe('日本語')
+    expect(localizedStickerTitle({ ja: '日本語' }, 'zh-TW', 'Shop title')).toBe(
+      '日本語',
+    )
     expect(localizedStickerTitle({}, 'en', 'Shop title')).toBe('Shop title')
   })
 })

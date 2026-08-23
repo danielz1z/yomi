@@ -52,7 +52,9 @@ function mapContactProfileFields(
     profileId: (contact[49] as string) || null,
     attributes: normalizeNumericValue(contact[35]),
     settings: normalizeNumericValue(contact[36]),
-    notificationDisabled: Boolean((normalizeNumericValue(contact[36]) ?? 0) & 1),
+    notificationDisabled: Boolean(
+      (normalizeNumericValue(contact[36]) ?? 0) & 1,
+    ),
     isOfficial: Boolean((normalizeNumericValue(contact[35]) ?? 0) & 32),
   }
 }

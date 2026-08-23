@@ -44,6 +44,7 @@
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "lint:comments": "node scripts/lint-comments.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
     "pretest": "npm run lint:comments",
     "format": "biome format --write src/",
     "test": "bun test",

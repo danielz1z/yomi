@@ -63,7 +63,10 @@ function buildSyncPayload(runtime: any, count: number) {
  * Short-lived callers (for example the desktop `chats` bridge) call
  * syncLongPoll directly, so initialise the cursor at the protocol boundary.
  */
-export async function ensureSyncRevision(runtime: any, lineLog: any): Promise<void> {
+export async function ensureSyncRevision(
+  runtime: any,
+  lineLog: any,
+): Promise<void> {
   const current = Number(runtime.revision)
   if (Number.isFinite(current) && current >= 0) return
 
@@ -74,9 +77,12 @@ export async function ensureSyncRevision(runtime: any, lineLog: any): Promise<vo
     throw new Error(`getLastOpRevision: ${exc[2] || exc[1] || 'unknown'}`)
   }
   const rawRevision = result.fields?.[0]
-  const revision = typeof rawRevision === 'bigint' ? Number(rawRevision) : Number(rawRevision)
+  const revision =
+    typeof rawRevision === 'bigint' ? Number(rawRevision) : Number(rawRevision)
   if (!Number.isFinite(revision) || revision < 0) {
-    throw new Error(`getLastOpRevision returned invalid revision: ${String(rawRevision)}`)
+    throw new Error(
+      `getLastOpRevision returned invalid revision: ${String(rawRevision)}`,
+    )
   }
   runtime.revision = revision
   lineLog.info('revision.fetch', { type: typeof rawRevision, value: revision })
@@ -132,7 +138,10 @@ function throwSyncException(result: any, lineLog: any): void {
  * @param response - Top-level sync response payload.
  * @returns Raw operations array.
  */
-export function updateSyncRevisions(runtime: any, response: any): any[] | undefined {
+export function updateSyncRevisions(
+  runtime: any,
+  response: any,
+): any[] | undefined {
   const operationResponse = response?.[1]
   const ops = operationResponse?.[1]
   const nextRevision = response?.[2]
@@ -140,8 +149,12 @@ export function updateSyncRevisions(runtime: any, response: any): any[] | undefi
   const lastIndividualRevision = operationResponse?.[3]
 
   if (typeof nextRevision === 'number' || typeof nextRevision === 'bigint') {
-    const candidate = typeof nextRevision === 'bigint' ? Number(nextRevision) : nextRevision
-    if (Number.isFinite(candidate) && candidate >= Number(runtime.revision || 0)) {
+    const candidate =
+      typeof nextRevision === 'bigint' ? Number(nextRevision) : nextRevision
+    if (
+      Number.isFinite(candidate) &&
+      candidate >= Number(runtime.revision || 0)
+    ) {
       runtime.revision = candidate
     }
   }

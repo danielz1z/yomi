@@ -170,6 +170,5 @@ export function createMessageQueryService(getClient, e2eeManager) {
       })
       return decryptLineMessages(e2eeManager, messages, chatId)
     },
-
   }
 }

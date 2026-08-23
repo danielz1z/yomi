@@ -253,8 +253,10 @@ export async function fetchLineMessageMedia(
     })
     const contentMetadata = message?.contentMetadata || {}
     const fileName =
-      (typeof contentMetadata.FILE_NAME === 'string' && contentMetadata.FILE_NAME) ||
-      (typeof contentMetadata.FILE_NAME_ORIGINAL === 'string' && contentMetadata.FILE_NAME_ORIGINAL) ||
+      (typeof contentMetadata.FILE_NAME === 'string' &&
+        contentMetadata.FILE_NAME) ||
+      (typeof contentMetadata.FILE_NAME_ORIGINAL === 'string' &&
+        contentMetadata.FILE_NAME_ORIGINAL) ||
       (typeof contentMetadata.name === 'string' && contentMetadata.name) ||
       null
     return {
