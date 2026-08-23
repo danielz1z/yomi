@@ -1,0 +1,22 @@
+[package]
+name = "yomi-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "AI-first personal communication workspace and tray companion for Yomi"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+tao = "0.31"
+tray-icon = "0.19"
+muda = "0.15"
+notify-rust = "4"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+wry = "0.56.1"

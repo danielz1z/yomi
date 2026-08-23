@@ -54,6 +54,10 @@
     "desktop:swift-quality": "bash scripts/swift-quality.sh",
     "desktop:restart": "node scripts/desktop-harness.mjs --restart",
     "desktop:run": "./desktop/mac-native/Yomi.app/Contents/MacOS/Yomi",
+    "desktop:windows:build": "cargo build --manifest-path desktop/Cargo.toml --release --target x86_64-pc-windows-msvc",
+    "desktop:windows:lint": "cargo fmt --manifest-path desktop/Cargo.toml -- --check && cargo clippy --manifest-path desktop/Cargo.toml --target x86_64-pc-windows-msvc -- -D warnings",
+    "desktop:windows:qc": "npm run typecheck && npm run lint && npm run lint:comments && cargo test --manifest-path desktop/Cargo.toml && npm run desktop:windows:lint",
+    "desktop:windows:harness": "node scripts/windows-desktop-harness.mjs",
     "version": "node scripts/sync-version.mjs && git add src/version.ts",
     "prepublishOnly": "npm run build"
   },

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  }
+  
+  html, body {
+    background: transparent;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    padding: 10px;
+  }
+
+  .panel-card {
+    background: rgba(26, 26, 28, 0.96);
+    backdrop-filter: blur(40px) saturate(210%);
+    -webkit-backdrop-filter: blur(40px) saturate(210%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.4);
+    color: #F4F4F5;
+    padding: 14px 14px 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* Header Bar */
+  .header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 4px 4px 4px;
+  }
+  .title-group {
+    display: flex;
+    flex-direction: column;
+  }
+  .app-name {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    color: #FFFFFF;
+  }
+  .status-badge {
+    font-size: 12.5px;
+    color: #A1A1AA;
+    margin-top: 1px;
+    font-weight: 400;
+  }
+
+  /* Tailscale iOS Toggle Switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 25px;
+  }
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #3F3F46;
+    transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 25px;
+  }
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 21px;
+    width: 21px;
+    left: 2px;
+    bottom: 2px;
+    background-color: #FFFFFF;
+    transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 50%;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  }
+  input:checked + .slider {
+    background-color: #2563EB;
+  }
+  input:checked + .slider:before {
+    transform: translateX(19px);
+  }
+
+  /* User Profile Row */
+  .profile-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .profile-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .avatar-circle {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #334155, #1E293B);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 13.5px;
+    color: #F8FAFC;
+    flex-shrink: 0;
+    letter-spacing: 0.5px;
+  }
+  .profile-details {
+    flex: 1;
+    min-width: 0;
+  }
+  .profile-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #FAFAFA;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .profile-subtitle {
+    font-size: 12px;
+    color: #A1A1AA;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+  .chevron-icon {
+    color: #71717A;
+    font-size: 13px;
+    font-weight: 600;
+    padding-right: 2px;
+  }
+
+  /* Divider */
+  .divider-line {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 1px 0;
+  }
+
+  /* List Items */
+  .menu-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #E4E4E7;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .menu-row:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #FFFFFF;
+  }
+  .menu-row.muted {
+    color: #A1A1AA;
+    cursor: default;
+  }
+  .menu-row.muted:hover {
+    background: transparent;
+    color: #A1A1AA;
+  }
+  .shortcut-tag {
+    font-size: 12px;
+    color: #71717A;
+    font-weight: 500;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  }
+
+  .coding-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+  .coding-label {
+    color: #A1A1AA;
+    font-size: 11px;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+  }
+  .coding-controls {
+    display: flex;
+    gap: 6px;
+  }
+  .coding-controls select,
+  .coding-controls textarea {
+    color: #F4F4F5;
+    background: #27272A;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 5px;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .coding-controls select { width: 100px; }
+  .coding-controls textarea { flex: 1; height: 32px; resize: none; }
+  .coding-run {
+    align-self: flex-end;
+    color: #FFFFFF;
+    background: #2563EB;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 5px 9px;
+  }
+  .coding-status { color: #A1A1AA; font-size: 11px; }
+</style>
+</head>
+<body>
+  <div class="panel-card">
+    <!-- Header with Switch -->
+    <div class="header-bar">
+      <div class="title-group">
+        <span class="app-name">Yomi</span>
+        <span id="status-label" class="status-badge">Connected</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="sync-toggle" checked onchange="handleToggle(this.checked)">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <!-- Account / Profile Item -->
+    <div class="profile-row" onclick="triggerAction('account')">
+      <div class="avatar-circle" id="user-avatar">YM</div>
+      <div class="profile-details">
+        <div class="profile-title" id="user-name">LINE User</div>
+        <div class="profile-subtitle" id="user-sub">MID: Loading...</div>
+      </div>
+      <span class="chevron-icon">›</span>
+    </div>
+
+    <div class="divider-line"></div>
+
+    <!-- Middle Info & Actions -->
+    <div class="menu-group">
+      <div class="menu-row muted">
+        <span id="device-label">This Device: Localhost (stdio)</span>
+      </div>
+      <div class="menu-row" onclick="triggerAction('sync')">
+        <span>Sync Messages Now</span>
+        <span class="chevron-icon">›</span>
+      </div>
+      <div class="menu-row" onclick="triggerAction('test_notify')">
+        <span>Send Test Notification</span>
+      </div>
+      <div class="menu-row" onclick="triggerAction('open_workspace')">
+        <span>Open Yomi Workspace</span>
+        <span class="chevron-icon">›</span>
+      </div>
+    </div>
+
+    <div class="divider-line"></div>
+
+    <div class="coding-section">
+      <span class="coding-label">Coding tools · Yomi MCP all tools enabled</span>
+      <div class="coding-controls">
+        <select id="coding-provider" aria-label="Coding tool provider">
+          <option value="auto">Auto-detect</option>
+        </select>
+        <textarea id="coding-prompt" aria-label="Coding task" placeholder="Ask a coding tool..."></textarea>
+      </div>
+      <button class="coding-run" onclick="runCodingTool()">Run coding task</button>
+      <span id="coding-status" class="coding-status">Detecting local providers...</span>
+    </div>
+
+    <div class="divider-line"></div>
+
+    <!-- Bottom Actions & Shortcuts -->
+    <div class="menu-group">
+      <div class="menu-row" onclick="triggerAction('settings')">
+        <span>Settings...</span>
+        <span class="shortcut-tag">&#8984; ,</span>
+      </div>
+      <div class="menu-row" onclick="triggerAction('open_doc')">
+        <span>Documentation & Guide</span>
+      </div>
+      <div class="menu-row" onclick="triggerAction('quit')">
+        <span>Quit</span>
+        <span class="shortcut-tag">&#8984; Q</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function triggerAction(action) {
+      if (window.ipc) {
+        window.ipc.postMessage(action);
+      }
+    }
+
+    function handleToggle(checked) {
+      if (window.ipc) {
+        window.ipc.postMessage(checked ? 'enable_sync' : 'disable_sync');
+      }
+    }
+
+    window.updateState = function(state) {
+      document.getElementById('status-label').innerText = state.connected ? 'Connected' : 'Not Logged In';
+      document.getElementById('sync-toggle').checked = state.connected;
+      document.getElementById('user-name').innerText = state.displayName || 'LINE Account';
+      document.getElementById('user-sub').innerText = state.mid ? ('MID: ' + state.mid) : 'Authenticate via Claude MCP';
+      if (state.avatarText) {
+        document.getElementById('user-avatar').innerText = state.avatarText;
+      }
+      const providerSelect = document.getElementById('coding-provider');
+      const previous = providerSelect.value;
+      providerSelect.innerHTML = '<option value="auto">Auto-detect</option>';
+      (state.codingTools || []).forEach(function(provider) {
+        const option = document.createElement('option');
+        option.value = provider.id;
+        option.innerText = provider.display_name + (provider.detected ? ' · ready' : ' · not found');
+        option.disabled = !provider.detected;
+        providerSelect.appendChild(option);
+      });
+      providerSelect.value = previous || 'auto';
+      const detected = state.codingToolAutoDetected || 'none';
+      document.getElementById('coding-status').innerText = detected === 'none'
+        ? 'No coding tool detected; install one and restart Yomi.'
+        : 'Auto-detected: ' + detected + ' · ' + state.yomiMcpToolCount + ' Yomi tools enabled';
+    };
+
+    function runCodingTool() {
+      const prompt = document.getElementById('coding-prompt').value.trim();
+      if (!prompt || !window.ipc) return;
+      window.ipc.postMessage('coding_tool_run:' + JSON.stringify({
+        provider: document.getElementById('coding-provider').value,
+        prompt: prompt
+      }));
+      document.getElementById('coding-status').innerText = 'Coding task started...';
+    }
+  </script>
+</body>
+</html>
