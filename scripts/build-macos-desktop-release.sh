@@ -29,7 +29,9 @@ cp "$CORE/desktop-bundle.json" "$APP/Contents/Resources/desktop-bundle.json"
 /usr/bin/strip -x "$APP/Contents/MacOS/Yomi"
 
 if [[ -n "${MACOS_SIGNING_IDENTITY:-}" ]]; then
-  codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP/Contents/Resources/runtime/node"
+  codesign --force --options runtime --timestamp \
+    --entitlements desktop/mac-native/Node.entitlements \
+    --sign "$MACOS_SIGNING_IDENTITY" "$APP/Contents/Resources/runtime/node"
   codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP"
 else
   if [[ "${YOMI_ALLOW_UNSIGNED_PREVIEW:-0}" != "1" ]]; then
@@ -42,20 +44,20 @@ fi
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" ]]; then
+if [[ -n "${APPLE_API_KEY_PATH:-}" && -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER_ID:-}" ]]; then
   NOTARY_ZIP="$OUTPUT/Yomi-notary.zip"
   ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
   xcrun notarytool submit "$NOTARY_ZIP" \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_PASSWORD" \
+    --key "$APPLE_API_KEY_PATH" \
+    --key-id "$APPLE_API_KEY_ID" \
+    --issuer "$APPLE_API_ISSUER_ID" \
     --wait
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
   spctl --assess --type execute --verbose=4 "$APP"
   rm "$NOTARY_ZIP"
 elif [[ "${YOMI_ALLOW_UNSIGNED_PREVIEW:-0}" != "1" ]]; then
-  echo "APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_PASSWORD are required for notarization" >&2
+  echo "APPLE_API_KEY_PATH, APPLE_API_KEY_ID, and APPLE_API_ISSUER_ID are required for notarization" >&2
   exit 1
 fi
 

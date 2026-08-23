@@ -23,9 +23,9 @@ hard limit, and each compressed installer has a 120 MB hard limit.
 - `MACOS_CERTIFICATE_PASSWORD`: password protecting the `.p12`
 - `MACOS_KEYCHAIN_PASSWORD`: temporary CI keychain password
 - `MACOS_SIGNING_IDENTITY`: full `Developer ID Application: ... (TEAMID)` name
-- `APPLE_ID`: Apple developer account email
-- `APPLE_TEAM_ID`: Apple Developer team identifier
-- `APPLE_APP_PASSWORD`: app-specific password used by `notarytool`
+- `APPLE_API_KEY_BASE64`: base64-encoded App Store Connect Team API `.p8`
+- `APPLE_API_KEY_ID`: Team API key identifier
+- `APPLE_API_ISSUER_ID`: App Store Connect API issuer UUID
 
 ### Windows
 

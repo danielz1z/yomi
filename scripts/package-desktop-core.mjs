@@ -62,6 +62,7 @@ if (!output || !platform) fail('usage: --output DIR --platform macos|windows [--
 if (!['macos', 'windows'].includes(platform)) fail(`unsupported platform: ${platform}`)
 if (!['lite', 'full'].includes(semantic)) fail(`unsupported semantic mode: ${semantic}`)
 if (!existsSync(nodeBinary)) fail(`Node runtime not found: ${nodeBinary}`)
+run('npm', ['run', 'build'])
 if (!existsSync(join(root, 'dist', 'mcp', 'server.js'))) fail('dist/ is missing; run npm run build first')
 
 const nodeLicense = findNodeLicense(nodeBinary)

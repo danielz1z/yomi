@@ -16,7 +16,10 @@ const sourceFiles = [
   join(desktop, 'src', 'agent', 'mod.rs'),
   join(desktop, 'src', 'platform.rs'),
   join(desktop, 'src', 'auth', 'keychain.rs'),
+  join(desktop, 'src', 'auth', 'login.rs'),
+  join(desktop, 'src', 'events.rs'),
   join(desktop, 'src', 'popover', 'mod.rs'),
+  join(desktop, 'src', 'popover', 'view.html'),
   join(desktop, 'src', 'notification', 'mod.rs'),
   join(desktop, 'src', 'popover', 'view.html'),
 ]
@@ -40,6 +43,15 @@ if (!source.includes('Command::new("cmd")') || !source.includes('target_os = "wi
 }
 if (!source.includes('join("YomiCore").join("run.mjs")') || !source.includes('"node.exe"')) {
   fail('Windows release must resolve the bundled Node and YomiCore runtime')
+}
+if (!source.includes('login_start:') || !source.includes('Continue on this computer')) {
+  fail('Windows desktop must provide an in-app LINE login form and IPC bridge')
+}
+if (!source.includes('PIN:') || !source.includes('WaitingApproval') || !source.includes('RefreshAccount')) {
+  fail('Windows login must surface PIN progress and refresh the account after success')
+}
+if (source.includes('info!("Popover action triggered: {}", action)')) {
+  fail('desktop logging must not persist phone numbers or coding prompts from IPC payloads')
 }
 for (const provider of ['codex', 'claude', 'antigravity', 'opencode', 'ollama']) {
   if (!source.includes(`id: "${provider}"`)) fail(`coding provider is not wired: ${provider}`)

@@ -1,5 +1,6 @@
 mod agent;
 mod auth;
+mod events;
 mod notification;
 mod platform;
 mod popover;
@@ -7,6 +8,7 @@ mod sync;
 mod tray;
 
 use agent::{CodingToolBackend, CodingToolRegistry};
+use events::DesktopEvent;
 use muda::MenuEvent;
 use popover::PopoverPanel;
 use std::sync::Arc;
@@ -38,7 +40,8 @@ fn main() {
     });
 
     // Create the desktop GUI event loop.
-    let event_loop = EventLoopBuilder::new().build();
+    let event_loop = EventLoopBuilder::<DesktopEvent>::with_user_event().build();
+    let event_proxy = event_loop.create_proxy();
 
     // Initialize the Tailscale-style floating popover panel.
     let popover_panel = PopoverPanel::new(
@@ -46,6 +49,7 @@ fn main() {
         sync_service.clone(),
         coding_backend,
         rt.handle().clone(),
+        event_proxy,
     );
 
     // Initialize the system tray.
@@ -61,6 +65,9 @@ fn main() {
         );
 
         match event {
+            Event::UserEvent(event) => {
+                popover_panel.handle_event(event);
+            }
             // Close the popover automatically when it loses focus.
             Event::WindowEvent {
                 event: WindowEvent::Focused(false),

@@ -1,12 +1,14 @@
 use crate::agent::CodingToolBackend;
 use crate::auth::keychain::KeychainStore;
+use crate::auth::login::{run_login, LoginRequest};
+use crate::events::DesktopEvent;
 use crate::notification::NotificationService;
 use crate::platform::open_url;
 use crate::sync::SyncService;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tao::dpi::{LogicalPosition, LogicalSize};
-use tao::event_loop::EventLoopWindowTarget;
+use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
 use tao::window::{Window, WindowBuilder};
 use tokio::runtime::Handle;
 use tracing::info;
@@ -23,11 +25,12 @@ pub struct PopoverPanel {
 }
 
 impl PopoverPanel {
-    pub fn new<T>(
-        window_target: &EventLoopWindowTarget<T>,
+    pub fn new(
+        window_target: &EventLoopWindowTarget<DesktopEvent>,
         sync_service: Arc<SyncService>,
         coding_backend: Arc<CodingToolBackend>,
         runtime_handle: Handle,
+        event_proxy: EventLoopProxy<DesktopEvent>,
     ) -> Self {
         let width = 340.0;
         let height = 500.0;
@@ -46,13 +49,14 @@ impl PopoverPanel {
         let sync_clone = sync_service.clone();
         let coding_backend_for_ipc = coding_backend.clone();
         let runtime_handle_for_ipc = runtime_handle.clone();
+        let event_proxy_for_ipc = event_proxy.clone();
 
         let webview = WebViewBuilder::new()
             .with_html(POPOVER_HTML)
             .with_transparent(true)
             .with_ipc_handler(move |msg| {
                 let action = msg.body();
-                info!("Popover action triggered: {}", action);
+                info!("Popover action triggered: {}", action_name(action));
                 match action.as_str() {
                     "sync" => {
                         sync_clone.trigger_manual_sync();
@@ -92,6 +96,19 @@ impl PopoverPanel {
                             });
                         }
                     }
+                    action if action.starts_with("login_start:") => {
+                        let payload = &action["login_start:".len()..];
+                        if let Ok(request) = serde_json::from_str::<LoginRequest>(payload) {
+                            let proxy = event_proxy_for_ipc.clone();
+                            runtime_handle_for_ipc.spawn(run_login(request, proxy));
+                        } else {
+                            let _ = event_proxy_for_ipc.send_event(DesktopEvent::Login(
+                                crate::events::LoginUiState::Error {
+                                    message: "The login form was invalid. Check the phone number and try again.".to_string(),
+                                },
+                            ));
+                        }
+                    }
                     "quit" => {
                         std::process::exit(0);
                     }
@@ -110,6 +127,20 @@ impl PopoverPanel {
 
         panel.refresh_data();
         panel
+    }
+
+    pub fn handle_event(&self, event: DesktopEvent) {
+        match event {
+            DesktopEvent::Login(state) => {
+                if let Ok(json) = serde_json::to_string(&state) {
+                    let script = format!(
+                        "if (window.updateLoginState) {{ window.updateLoginState({json}); }}"
+                    );
+                    let _ = self.webview.evaluate_script(&script);
+                }
+            }
+            DesktopEvent::RefreshAccount => self.refresh_data(),
+        }
     }
 
     /// Toggle popover panel visibility.
@@ -210,4 +241,8 @@ fn truncate_notification(value: &str) -> String {
         return trimmed.to_string();
     }
     format!("{}…", trimmed.chars().take(179).collect::<String>())
+}
+
+fn action_name(action: &str) -> &str {
+    action.split_once(':').map_or(action, |(name, _)| name)
 }

@@ -1,5 +1,37 @@
 use std::path::PathBuf;
 
+/// Resolve the Node executable, Yomi entry point, and working directory used
+/// by desktop-owned subprocesses. Installed bundles always win; environment
+/// overrides and the repository checkout exist only for development.
+pub fn yomi_runtime_paths() -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let executable_root = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf));
+    if let Some(root) = executable_root {
+        let node = root.join("runtime").join(if cfg!(target_os = "windows") {
+            "node.exe"
+        } else {
+            "node"
+        });
+        let run_mjs = root.join("YomiCore").join("run.mjs");
+        if node.exists() && run_mjs.exists() {
+            return Some((node, run_mjs, root.join("YomiCore")));
+        }
+    }
+
+    let run_mjs = std::env::var_os("YOMI_RUN_MJS")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let candidate = std::env::current_dir().ok()?.join("run.mjs");
+            candidate.exists().then_some(candidate)
+        })?;
+    let node = std::env::var_os("YOMI_NODE_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("node"));
+    let cwd = run_mjs.parent()?.to_path_buf();
+    Some((node, run_mjs, cwd))
+}
+
 /// Return the canonical per-user Yomi data directory for the current platform.
 pub fn data_dir() -> Option<PathBuf> {
     if let Some(override_dir) = std::env::var_os("YOMI_DATA_DIR") {
