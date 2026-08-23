@@ -64,7 +64,9 @@ async function restoreE2EEState(service: any, lineLog: any): Promise<void> {
  * @param lineLog - Logger instance.
  */
 async function restoreBootstrapKeys(service: any, lineLog: any): Promise<void> {
-  const bootstrapKeys = await recoverBootstrapKeys(service)
+  // Resume is intentionally read-only.  Recovered keys are imported into
+  // this process but are not written back to the durable Keychain blob.
+  const bootstrapKeys = await recoverBootstrapKeys(service, { persist: false })
   if (bootstrapKeys?.length) {
     service.e2eeWarning = false
     service.emit('e2eeWarning', {
@@ -100,6 +102,11 @@ async function validateRestoredSession(
     const profile = await service.client.getProfile()
     if (profile) {
       service.profile = profile
+      // Session resume is a read-only/background path.  Persisting profile
+      // metadata here rewrites the entire macOS Keychain blob on every
+      // desktop polling process and triggers a security permission prompt.
+      // Login and explicit account changes own durable profile writes; a
+      // resume may use this in-memory profile for the current request only.
       lineLog.info('session.restore.validated', {
         profile: profile.displayName || profile.mid,
       })
@@ -146,6 +153,14 @@ async function handleSessionValidationError(
   }
 
   if (AUTH_ERROR_REGEX.test(msg)) {
+    if (process.env.YOMI_READ_ONLY_SESSION === '1') {
+      lineLog.info('auth.refresh.skip', { reason: 'read_only_session' })
+      service.loginRequired = true
+      service.loginReason = 'expired'
+      service.setState(STATE.DISCONNECTED)
+      service.emit('line:loginRequired')
+      return false
+    }
     lineLog.info('session.restore.refresh_attempt')
     const refreshed = await tryRefreshToken(service)
     if (refreshed) {

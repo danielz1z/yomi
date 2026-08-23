@@ -6,7 +6,7 @@
  * a default implementation (./default-embedder.ts, transformers.js/ONNX) so
  * the MCP server works standalone, but nothing in store.ts/collector.ts
  * imports that default directly — they only depend on this interface, so a
- * host app (e.g. inboxd) can inject its own embedder (its local MLX
+ * host app (e.g. Yomi Desktop) can inject its own embedder (its local MLX
  * `generateEmbedding`) instead. See ./default-embedder.ts's doc comment for
  * the exact adapter shape.
  */

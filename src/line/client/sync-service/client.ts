@@ -59,6 +59,30 @@ function buildSyncPayload(runtime: any, count: number) {
 }
 
 /**
+ * A negative revision is uninitialised, never a valid LINE checkpoint.
+ * Short-lived callers (for example the desktop `chats` bridge) call
+ * syncLongPoll directly, so initialise the cursor at the protocol boundary.
+ */
+export async function ensureSyncRevision(runtime: any, lineLog: any): Promise<void> {
+  const current = Number(runtime.revision)
+  if (Number.isFinite(current) && current >= 0) return
+
+  const result = await runtime.sendTalk('getLastOpRevision', [])
+  if (result.fields?.[1]) {
+    const exc = result.fields[1]
+    lineLog.error('revision.fetch.failed', { error: JSON.stringify(exc) })
+    throw new Error(`getLastOpRevision: ${exc[2] || exc[1] || 'unknown'}`)
+  }
+  const rawRevision = result.fields?.[0]
+  const revision = typeof rawRevision === 'bigint' ? Number(rawRevision) : Number(rawRevision)
+  if (!Number.isFinite(revision) || revision < 0) {
+    throw new Error(`getLastOpRevision returned invalid revision: ${String(rawRevision)}`)
+  }
+  runtime.revision = revision
+  lineLog.info('revision.fetch', { type: typeof rawRevision, value: revision })
+}
+
+/**
  * Parse raw LINE operations into normalized operation objects.
  *
  * @param runtime - LINE client runtime.
@@ -108,7 +132,7 @@ function throwSyncException(result: any, lineLog: any): void {
  * @param response - Top-level sync response payload.
  * @returns Raw operations array.
  */
-function updateSyncRevisions(runtime: any, response: any): any[] | undefined {
+export function updateSyncRevisions(runtime: any, response: any): any[] | undefined {
   const operationResponse = response?.[1]
   const ops = operationResponse?.[1]
   const nextRevision = response?.[2]
@@ -116,8 +140,10 @@ function updateSyncRevisions(runtime: any, response: any): any[] | undefined {
   const lastIndividualRevision = operationResponse?.[3]
 
   if (typeof nextRevision === 'number' || typeof nextRevision === 'bigint') {
-    runtime.revision =
-      typeof nextRevision === 'bigint' ? Number(nextRevision) : nextRevision
+    const candidate = typeof nextRevision === 'bigint' ? Number(nextRevision) : nextRevision
+    if (Number.isFinite(candidate) && candidate >= Number(runtime.revision || 0)) {
+      runtime.revision = candidate
+    }
   }
   if (
     typeof lastGlobalRevision === 'number' ||
@@ -249,6 +275,7 @@ export function createSyncClient(runtime) {
      * @returns Parsed operations.
      */
     async sync(count = 50) {
+      await ensureSyncRevision(runtime, getLineLog(runtime))
       const data = buildSyncPayload(runtime, count)
       const result = await sendRequest(
         runtime.host,
@@ -273,6 +300,7 @@ export function createSyncClient(runtime) {
     async syncLongPoll(count = 50, timeoutMs = 60000) {
       const lineLog = getLineLog(runtime)
       const startedAt = Date.now()
+      await ensureSyncRevision(runtime, lineLog)
       const data = buildSyncPayload(runtime, count)
       const result = await sendRequest(
         runtime.host,

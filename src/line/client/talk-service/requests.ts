@@ -177,17 +177,6 @@ export function buildRecentMessagesRequest(chatId, count) {
 }
 
 /**
- * Build a message-content download request.
- *
- * @param requestId - Client request identifier.
- * @param messageId - LINE message identifier.
- * @returns Thrift request fields.
- */
-export function buildDownloadMessageContentRequest(requestId, messageId) {
-  return [stringField(1, requestId), stringField(2, messageId)]
-}
-
-/**
  * Build a single-MID lookup request.
  *
  * @param mid - Target MID.

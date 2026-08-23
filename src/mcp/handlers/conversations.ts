@@ -1,4 +1,5 @@
 import { decryptLineMessage } from '../../line/core/message-query-service.js'
+import { sanitizeMessagePreview } from '../../line/core/message-preview.js'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { getExcludedChatIds } from '../../search/scope.js'
 import { createCliLogger } from '../../util/log.js'
@@ -8,6 +9,17 @@ import { createPhiAccumulator, maskInto, phiNote } from '../phi-guard.js'
 import { jsonResult, toolError, toonText } from './shared.js'
 
 const log = createCliLogger('Yomi')
+
+function messageTimestamp(message: any): number {
+  return Number(message?.deliveredTime || message?.createdTime || 0)
+}
+
+function latestMessage(messages: any[] | undefined): any | null {
+  if (!Array.isArray(messages) || messages.length === 0) return null
+  return messages.reduce((latest, candidate) =>
+    messageTimestamp(candidate) >= messageTimestamp(latest) ? candidate : latest,
+  )
+}
 
 /**
  * Handle `list_conversations` — list LINE conversations (chats, groups, rooms)
@@ -21,6 +33,16 @@ export async function handleListConversations(
   service: LineProtocolService,
   args: { limit?: number },
 ) {
+  try {
+    await service.client.syncLongPoll(50, 1000)
+    if (service.sessionState?.saveSyncRevisions) {
+      await service.sessionState.saveSyncRevisions(
+        Number(service.client.revision || 0),
+        Number(service.client.globalRevision || 0),
+        Number(service.client.individualRevision || 0),
+      )
+    }
+  } catch {}
   const result = await service.client.getMessageBoxes({
     lastMessagesPerMessageBoxCount: 1,
     messageBoxCountLimit: args.limit ?? 20,
@@ -40,14 +62,24 @@ export async function handleListConversations(
   const acc = createPhiAccumulator()
   const conversations = await Promise.all(
     boxes.map(async (box: any) => {
-      const lastMessage =
-        box.lastMessages?.[box.lastMessages.length - 1] || null
+      let lastMessage = latestMessage(box.lastMessages)
+      const cursorTime = Number(box.lastDeliveredMessageId?.deliveredTime || 0)
+      if (box.id && (!lastMessage || messageTimestamp(lastMessage) < cursorTime)) {
+        try {
+          const recent = await service.getRecentMessages(box.id, 1)
+          const candidate = latestMessage(recent)
+          if (candidate && messageTimestamp(candidate) >= messageTimestamp(lastMessage)) {
+            lastMessage = candidate
+          }
+        } catch {}
+      }
       const decryptedLastMessage = lastMessage
         ? await decryptLineMessage(service.e2eeManager, lastMessage, box.id)
         : null
+      const previewText = sanitizeMessagePreview(decryptedLastMessage?.text ?? lastMessage?.text)
       return {
         id: box.id,
-        lastMessagePreview: maskInto(acc, decryptedLastMessage?.text ?? null),
+        lastMessagePreview: maskInto(acc, previewText || (lastMessage?.text ? '[加密訊息]' : null)),
         name: names.get(box.id) ?? null,
         unreadCount: box.unreadCount ?? 0,
       }
@@ -133,7 +165,7 @@ export async function handleGetChatMessages(
     // be observed against a live mentioning message before anyone builds
     // the outbound (send-a-mention) side.
     mentions: message.contentMetadata?.MENTION ?? null,
-    text: maskInto(acc, message.text),
+    text: maskInto(acc, sanitizeMessagePreview(message.text) || (message.text ? '[加密訊息]' : null)),
     e2eeDecrypted: message.e2eeDecrypted ?? null,
     // Emitted ONLY when the message decrypted but could not be authenticated
     // (LINE E2EE v1 — AES-CBC, no tag, no AAD), so its presence is a signal
@@ -221,7 +253,7 @@ export async function handleGetUnreadDigest(
             resolveLineMediaDescriptor(m) !== null
               ? resolveLineMediaType(Number(m.contentType))
               : null,
-          text: maskInto(acc, m.text),
+          text: maskInto(acc, sanitizeMessagePreview(m.text) || (m.text ? '[加密訊息]' : null)),
         })),
       }
     }),

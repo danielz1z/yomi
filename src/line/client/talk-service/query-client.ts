@@ -18,10 +18,11 @@ import {
   logPreviousMessagesResponse,
   logRecentMessagesResponse,
   mapMessageBoxList,
+  mergeMessageBoxPages,
+  nextMessageBoxCursor,
 } from './message-box-query.js'
 import { fetchMessagesByIds } from './message-id-query.js'
 import {
-  buildDownloadMessageContentRequest,
   buildGetAllChatMidsRequest,
   buildGetAllContactIdsRequest,
   buildGetMessageBoxesRequest,
@@ -173,6 +174,35 @@ export function createTalkQueryClient(runtime) {
       }
     },
 
+    /** Retrieve every message box using the server's min/max chat cursor. */
+    async getAllMessageBoxes(options: MessageBoxListOptions = {}) {
+      const pageSize = Math.max(1, options.messageBoxCountLimit ?? 100)
+      const pages: Array<{ messageBoxes?: any[]; hasNext?: boolean }> = []
+      // getMessageBoxes paginates toward older boxes with minChatId. Using
+      // maxChatId here makes LINE repeat almost the whole first page (and can
+      // make a full inbox look capped at 100 rows).
+      let minChatId = options.minChatId
+      const seenCursors = new Set<string>()
+      for (;;) {
+        const page = await this.getMessageBoxes({
+          ...options,
+          messageBoxCountLimit: pageSize,
+          ...(minChatId ? { minChatId } : {}),
+        })
+        pages.push(page)
+        const boxes = page.messageBoxes as any[]
+        if (!page.hasNext || boxes.length === 0) break
+        const next = nextMessageBoxCursor(boxes, minChatId)
+        if (!next || seenCursors.has(next)) break
+        seenCursors.add(next)
+        minChatId = next
+      }
+      return {
+        messageBoxes: mergeMessageBoxPages(pages),
+        hasNext: false,
+      }
+    },
+
     /**
      * Retrieve previous messages through one message-box cursor.
      *
@@ -256,39 +286,5 @@ export function createTalkQueryClient(runtime) {
       return messages
     },
 
-    /**
-     * Retrieve binary media content for one LINE message.
-     *
-     * @param messageId - LINE message identifier.
-     * @param requestId - Client request identifier.
-     * @returns Message content bytes.
-     */
-    async downloadMessageContent(messageId, requestId = `yomi-${Date.now()}`) {
-      const result = await runtime.sendTalk(
-        'downloadMessageContent',
-        buildDownloadMessageContentRequest(requestId, messageId),
-      )
-      const content = result.fields?.[0]
-      return Buffer.isBuffer(content) ? content : Buffer.from(content || '')
-    },
-
-    /**
-     * Retrieve binary preview media content for one LINE message.
-     *
-     * @param messageId - LINE message identifier.
-     * @param requestId - Client request identifier.
-     * @returns Message preview bytes.
-     */
-    async downloadMessageContentPreview(
-      messageId,
-      requestId = `yomi-${Date.now()}`,
-    ) {
-      const result = await runtime.sendTalk(
-        'downloadMessageContentPreview',
-        buildDownloadMessageContentRequest(requestId, messageId),
-      )
-      const content = result.fields?.[0]
-      return Buffer.isBuffer(content) ? content : Buffer.from(content || '')
-    },
   }
 }

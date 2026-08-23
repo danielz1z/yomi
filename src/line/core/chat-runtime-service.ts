@@ -243,40 +243,6 @@ export function createChatRuntimeService(service: any) {
     },
 
     /**
-     * Download the original LINE content bytes for one message.
-     *
-     * @param messageId - LINE message identifier.
-     * @param requestId - Optional request identifier.
-     * @returns Original message content bytes.
-     */
-    async downloadMessageContent(
-      messageId: string,
-      requestId?: string,
-    ): Promise<Buffer> {
-      return createMessageQueryService(
-        () => service.client,
-        service.e2eeManager,
-      ).downloadMessageContent(messageId, requestId)
-    },
-
-    /**
-     * Download the LINE preview bytes for one message.
-     *
-     * @param messageId - LINE message identifier.
-     * @param requestId - Optional request identifier.
-     * @returns Preview content bytes.
-     */
-    async downloadMessageContentPreview(
-      messageId: string,
-      requestId?: string,
-    ): Promise<Buffer> {
-      return createMessageQueryService(
-        () => service.client,
-        service.e2eeManager,
-      ).downloadMessageContentPreview(messageId, requestId)
-    },
-
-    /**
      * Mark a LINE conversation read up to a message via the explicit
      * sendChatChecked boundary. When messageId is omitted, resolves the most
      * recent message id in the chat. NEVER called by background capture/sync —

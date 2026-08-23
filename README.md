@@ -479,6 +479,11 @@ fake success.
 this device a sign-in prompt — this is the single most common reason a first login
 appears to hang.
 
+> **⚠️ Single Desktop Session Limit:** LINE allows only **one desktop client session at a time**
+> per account. Because Yomi connects as a desktop secondary device (`DESKTOPMAC`), logging into Yomi
+> will sign out your official LINE Desktop app (and signing back into LINE Desktop will invalidate
+> Yomi's session). You cannot use Yomi and the official LINE Desktop client simultaneously.
+
 You only need to give the agent your phone number in E.164 form — it supplies the
 region itself (e.g. `TW` for a `+886` number) when it calls the tool.
 
@@ -516,16 +521,16 @@ entirely**.
 ### Sessions and credentials
 
 Yomi owns its own login. On startup it calls `resumeSession()` once, reading the
-LINE session from the macOS Keychain (service `com.yomi.credentials`, account
+LINE session from the macOS Keychain (service `dev.rikai.yomi.credentials`, account
 `line`) and silently refreshing the token if needed.
 
 - **First-party credentials.** The passwordless login persists the auth token,
   refresh token, certificate, MID, and the E2EE keypair itself — then reads them
   back to verify the write actually landed. A login that can't be persisted fails
   loudly at login, not silently at the next restart.
-- **Backward compatibility.** If no session is found under `com.yomi.credentials`,
-  Yomi reads the legacy `com.inboxd.credentials` entry once, migrates it forward,
-  and never deletes it. An existing session keeps working with no re-login.
+- **Shared session.** The session is stored in the canonical `dev.rikai.yomi.credentials`
+  keychain entry (or local credential store), allowing Yomi MCP and Yomi Desktop to
+  share the exact same LINE login session seamlessly.
 - **Platform note.** On macOS the session lives in the login Keychain. On **Linux
   and Windows** Yomi currently falls back to a local JSON file — functional, but
   less protected than an OS secret store, and less exercised than the macOS path.

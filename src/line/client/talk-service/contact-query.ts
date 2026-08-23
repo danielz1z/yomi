@@ -8,6 +8,11 @@ interface ContactProfile {
   picturePath: string | null
   statusMessageContentMetadata: Record<string, unknown>
   profileId: string | null
+  /** Raw Contact fields 35/36: official/account attributes and notification settings. */
+  attributes: number | null
+  settings: number | null
+  notificationDisabled: boolean
+  isOfficial: boolean
 }
 
 /**
@@ -16,11 +21,13 @@ interface ContactProfile {
  * @param value - Raw thrift scalar.
  * @returns Parsed number or original fallback.
  */
-function normalizeNumericValue(value: unknown): number | unknown | null {
+function normalizeNumericValue(value: unknown): number | null {
   if (typeof value === 'bigint') {
     return Number(value)
   }
-  return value || null
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
 }
 
 /**
@@ -43,6 +50,10 @@ function mapContactProfileFields(
     statusMessageContentMetadata:
       (contact[43] as Record<string, unknown>) || {},
     profileId: (contact[49] as string) || null,
+    attributes: normalizeNumericValue(contact[35]),
+    settings: normalizeNumericValue(contact[36]),
+    notificationDisabled: Boolean((normalizeNumericValue(contact[36]) ?? 0) & 1),
+    isOfficial: Boolean((normalizeNumericValue(contact[35]) ?? 0) & 32),
   }
 }
 

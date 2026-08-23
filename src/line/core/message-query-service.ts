@@ -171,35 +171,5 @@ export function createMessageQueryService(getClient, e2eeManager) {
       return decryptLineMessages(e2eeManager, messages, chatId)
     },
 
-    /**
-     * Download the original LINE content bytes for one message.
-     *
-     * @param messageId - LINE message identifier
-     * @param requestId - Optional request identifier
-     * @returns Original message content bytes
-     */
-    async downloadMessageContent(messageId, requestId = `yomi-${Date.now()}`) {
-      return requireLineClient(getClient).downloadMessageContent(
-        messageId,
-        requestId,
-      )
-    },
-
-    /**
-     * Download the LINE preview bytes for one message.
-     *
-     * @param messageId - LINE message identifier
-     * @param requestId - Optional request identifier
-     * @returns Preview content bytes
-     */
-    async downloadMessageContentPreview(
-      messageId,
-      requestId = `yomi-${Date.now()}`,
-    ) {
-      return requireLineClient(getClient).downloadMessageContentPreview(
-        messageId,
-        requestId,
-      )
-    },
   }
 }

@@ -8,7 +8,7 @@ import { encode } from '@toon-format/toon'
  */
 
 // Yomi logs in on its own (via the `login`/`login_complete` tools, or
-// `npx @rikaidev/yomi login`); it does not depend on inboxd for anything.
+// `npx @rikaidev/yomi login`); session is shared with Yomi Desktop.
 export const NO_CREDENTIALS_MESSAGE =
   'No persisted LINE session. Call the `login` tool, or run `npx @rikaidev/yomi login` in a terminal.'
 

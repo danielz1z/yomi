@@ -12,6 +12,49 @@ const OBS_HOST = 'obs.line-apps.com'
 const OBS_UPLOAD_HOST = 'gwz.line.naver.jp'
 
 /**
+ * Download media sent by a legacy/non-E2EE Talk client.
+ *
+ * These messages do not carry the OID/SID pair used by the newer E2EE OBS
+ * object format.  LINE's self-client protocol exposes them under the message
+ * object route instead:
+ *   GET https://obs.line-apps.com/r/talk/m/{messageId}[\/preview]
+ *
+ * This is deliberately not implemented as a TalkService call.  There is no
+ * `downloadMessageContent*` method on the current `/S4` service; sending such
+ * a Thrift call yields `Invalid method name`.
+ */
+export async function downloadLineMessageData(
+  client: any,
+  options: { messageId: string; preview?: boolean },
+): Promise<{ bytes: Buffer; mimeType: string | null }> {
+  const messageId = String(options.messageId || '').trim()
+  if (!messageId) {
+    throw new Error('LINE legacy media download requires a message id')
+  }
+  const suffix = options.preview ? '/preview' : ''
+  const requestUrl = `https://${OBS_HOST}/r/talk/m/${encodeURIComponent(messageId)}${suffix}`
+  const response = await fetch(requestUrl, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json, text/plain, */*',
+      'User-Agent': LINE_APP_CONFIG.userAgent,
+      'X-Line-Access': client.authToken,
+      'X-Line-Application': LINE_APP_CONFIG.lineApp,
+    },
+  })
+  const bytes = Buffer.from(await response.arrayBuffer())
+  if (!response.ok || bytes.length === 0) {
+    throw new Error(
+      `LINE legacy media download failed: status=${response.status} bytes=${bytes.length}`,
+    )
+  }
+  return {
+    bytes,
+    mimeType: response.headers.get('content-type')?.split(';', 1)[0] || null,
+  }
+}
+
+/**
  * Build LINE talk metadata required for OBS media downloads.
  *
  * @param messageId - LINE message id.
