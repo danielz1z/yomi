@@ -51,6 +51,34 @@ Guides: **[What is a LINE MCP server?](https://rikaidev.github.io/yomi/line-mcp/
 
 ## Getting started
 
+### Native Desktop preview
+
+Yomi Desktop puts the LINE inbox and local agent workspace in one native app.
+It bundles its own runtime: **users do not install Node, open Terminal, clone
+this repository, or configure `YOMI_RUN_MJS`.** Native Desktop is separate from
+the Claude Desktop MCPB extension described below.
+
+| Platform | General-user package | Signing status | Install experience |
+| --- | --- | --- | --- |
+| macOS 14+, Apple Silicon | `Yomi-Desktop-macOS-arm64-<version>.dmg` | Developer ID signed and Apple notarized | Open DMG → drag Yomi to Applications → open Yomi |
+| Windows 10/11 x64 | `Yomi-Desktop-Windows-x64-<version>-Setup.exe` | Trusted OSS signing application in progress | Download remains unavailable until signing and installer smoke pass |
+
+The macOS package has been tested through the real downloaded-app path:
+quarantined DMG, install to `/Applications`, Gatekeeper assessment, first
+launch, bundled-runtime message refresh, and no-terminal LINE login form. The
+Windows installer contains the equivalent in-app phone/PIN login flow and is
+tested on a native Windows runner before release.
+
+Desktop builds are experimental and unofficial. LINE changes may break them,
+and running an additional client may put an account at risk. Prefer a test
+account and keep a current backup. Preview installers are published as GitHub
+pre-releases only after platform signing is available.
+
+See the [desktop release process](DESKTOP-RELEASING.md),
+[code-signing policy](CODE_SIGNING.md), and [privacy policy](PRIVACY.md).
+
+### MCP server and Desktop Extension
+
 You need [Node.js](https://nodejs.org) and a LINE account. Yomi runs locally
 through `npx`; you do not need to clone this repository, install Bun, or build
 anything. Run `node --version` first, and install the current LTS if the command

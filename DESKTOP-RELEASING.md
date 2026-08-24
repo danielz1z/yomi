@@ -29,12 +29,13 @@ hard limit, and each compressed installer has a 120 MB hard limit.
 
 ### Windows
 
+- SignPath Foundation project slug and signing-policy identifiers, after the
+  project's free OSS application is approved; or
 - `WINDOWS_CERTIFICATE_BASE64`: base64-encoded trusted code-signing `.pfx`
 - `WINDOWS_CERTIFICATE_PASSWORD`: password protecting the `.pfx`
 
-Move Windows signing to Microsoft Trusted Signing when the RikaiDev Azure
-identity and certificate profile are ready. The release workflow deliberately
-fails rather than publishing an unsigned installer.
+The release workflow deliberately fails rather than publishing an unsigned
+installer. See [`CODE_SIGNING.md`](CODE_SIGNING.md).
 
 ## Local macOS packaging rehearsal
 
