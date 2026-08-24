@@ -2,12 +2,14 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "src/mcp/server.ts",
+    "src/mcp/integrator.ts",
     "src/cli/login.ts",
     "src/cli/login-qr.ts",
+    "src/cli/query.ts",
     "src/version.ts",
     "scripts/*.mjs",
     "src/**/*.test.ts"
   ],
   "project": ["src/**/*.ts"],
-  "ignoreBinaries": ["security", "defaults", "sw_vers", "ffmpeg"]
+  "ignoreBinaries": ["security", "defaults", "sw_vers", "ffmpeg", "swiftc", "pkill"]
 }

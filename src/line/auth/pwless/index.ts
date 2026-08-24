@@ -68,7 +68,7 @@ export const PAAK_AUTH_CLIENT_CEILING_MS =
  * This is an EXTERNAL FACT, not derived from any of our code or protocol
  * traffic. Source: LINE Help Center (zh-Hant),
  * https://help.line.me/line/IOSSecondary/?contentId=20018574&lang=zh-Hant
- * — on the primary device, tick the device signing in and tap 「用戶確認」
+ * — on the primary device, select the device signing in and confirm the user
  * within 3 minutes of the code being displayed.
  */
 export const LINE_PIN_CODE_LIFETIME_MS = 3 * 60 * 1000

@@ -13,9 +13,8 @@
  * rotated auth token during `resumeSession`), not only by a direct login.
  *
  * Keychain account: namespace (e.g. 'line')
- * KeychainService service name: see keychain.ts — writes go to Yomi's own
- * canonical namespace; a legacy namespace from before this split is read
- * as a fallback and migrated forward, never written to or deleted.
+ * KeychainService service name: see keychain.ts — stored in Yomi's canonical
+ * namespace (`dev.rikai.yomi.credentials`), shared across Yomi MCP and Yomi Desktop.
  *
  * The Keychain is machine-global: it is NOT scoped by YOMI_DATA_DIR, so on
  * macOS an automated run that only redirected the data dir would still find —
@@ -211,8 +210,13 @@ export class CredentialStore {
     this.filePath = fallbackFilePath
     this.cache = new Map()
     this.loaded = false
+    // Desktop background bridges are deliberately read-only.  They must use
+    // the user-isolated credential file and never invoke `security` to mutate
+    // the Keychain during a 15s poll (which causes repeated macOS prompts).
     this.secureStorageEnabled =
-      process.platform === 'darwin' && process.env.YOMI_NO_KEYCHAIN !== '1'
+      process.platform === 'darwin' &&
+      process.env.YOMI_NO_KEYCHAIN !== '1' &&
+      process.env.YOMI_READ_ONLY_SESSION !== '1'
     this.keychainService = this.secureStorageEnabled
       ? getKeychainService()
       : null
@@ -234,22 +238,33 @@ export class CredentialStore {
    * @returns Serialized credential blob or null when missing.
    */
   private async readPersistedBlob(): Promise<string | null> {
+    try {
+      const fs = await import('node:fs/promises')
+      const fileData = await fs.readFile(this.filePath, 'utf-8')
+      if (fileData?.trim()) {
+        return fileData
+      }
+    } catch {}
+
     if (this.secureStorageEnabled && this.keychainService) {
       const result = await this.keychainService.getCredential(
         this.keychainAccount,
       )
       if (result.success && result.password) {
+        try {
+          const fs = await import('node:fs/promises')
+          await fs.mkdir(dirname(this.filePath), {
+            recursive: true,
+            mode: 0o700,
+          })
+          await fs.writeFile(this.filePath, result.password, { mode: 0o600 })
+        } catch {}
         return result.password
       }
       return null
     }
 
-    try {
-      const fs = await import('node:fs/promises')
-      return await fs.readFile(this.filePath, 'utf-8')
-    } catch {
-      return null
-    }
+    return null
   }
 
   /**
@@ -285,6 +300,11 @@ export class CredentialStore {
 
     if (this.secureStorageEnabled && this.keychainService) {
       await this.keychainService.setCredential(this.keychainAccount, blob)
+      try {
+        const fs = await import('node:fs/promises')
+        await fs.mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 })
+        await fs.writeFile(this.filePath, blob, { mode: 0o600 })
+      } catch {}
       this.lastPersistedBlob = blob
       return
     }

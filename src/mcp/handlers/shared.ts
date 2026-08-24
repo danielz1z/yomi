@@ -9,7 +9,7 @@ import { encode } from '@toon-format/toon'
 
 // Yomi logs in on its own (via the `login`/`login_complete` or
 // `login_qr`/`login_qr_complete` tools, or `npx @rikaidev/yomi login` /
-// `login-qr`); it does not depend on inboxd for anything.
+// `login-qr`); session is shared with Yomi Desktop.
 export const NO_CREDENTIALS_MESSAGE =
   'No persisted LINE session. Call the `login` tool (phone number + PIN) or `login_qr` ' +
   '(QR code — for accounts with no phone number), or run `npx @rikaidev/yomi login` / ' +

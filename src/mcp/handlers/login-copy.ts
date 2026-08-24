@@ -5,7 +5,7 @@
  * fallback) cannot drift apart in what they tell the user.
  *
  * The centre of gravity is one prerequisite that nothing in the protocol can
- * work around: the primary phone must have 允許自其他裝置登入 turned on. When
+ * work around: the primary phone must allow login from other devices. When
  * it is off, LINE never offers this device a sign-in prompt at all — the
  * human sees NOTHING happen on their phone and has no way to tell that from
  * "it is just slow". That is the failure users actually report.

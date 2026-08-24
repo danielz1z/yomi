@@ -10,6 +10,11 @@
 
 const CDN = 'https://stickershop.line-scdn.net/stickershop/v1/product'
 
+// Metadata is public and immutable for the lifetime of a picker session. Keep
+// one in-flight/result promise per package so opening the picker or changing
+// locale does not refetch the same package repeatedly.
+const packageMetaCache = new Map<string, Promise<StickerPackageMeta | null>>()
+
 /** One sticker package's public metadata, trimmed to what sending needs. */
 export interface StickerPackageMeta {
   packageId: string
@@ -17,6 +22,31 @@ export interface StickerPackageMeta {
   title: Record<string, string>
   /** Individual sticker ids (STKID) in the package. */
   stickerIds: string[]
+}
+
+/** Pick the title users expect for the app's current language. */
+export function localizedStickerTitle(
+  titles: Record<string, string> | undefined,
+  language = 'en',
+  fallback = '',
+): string {
+  const values = titles ?? {}
+  const normalized = language.replace('_', '-').toLowerCase()
+  const preferred = normalized.startsWith('zh')
+    ? ['zh-Hant', 'zh_TW', 'zh-TW', 'zh']
+    : normalized.startsWith('ja')
+      ? ['ja']
+      : ['en']
+  for (const key of preferred) {
+    const value = values[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  const english = values.en
+  if (typeof english === 'string' && english.trim()) return english.trim()
+  const first = Object.values(values).find(
+    (value) => typeof value === 'string' && value.trim(),
+  )
+  return first?.trim() || fallback
 }
 
 /**
@@ -44,6 +74,16 @@ export async function fetchStickerPackageMeta(
       .map((s: any) => (s?.id != null ? String(s.id) : null))
       .filter((id: string | null): id is string => id !== null),
   }
+}
+
+export function fetchStickerPackageMetaCached(
+  packageId: string,
+): Promise<StickerPackageMeta | null> {
+  const cached = packageMetaCache.get(packageId)
+  if (cached) return cached
+  const request = fetchStickerPackageMeta(packageId)
+  packageMetaCache.set(packageId, request)
+  return request
 }
 
 /**

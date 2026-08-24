@@ -8,6 +8,11 @@
 
 # Yomi (読み) — the personal LINE MCP server
 
+> **Fork note (danielz1z/yomi):** this tree is **not** a clean RikaiDev release.
+> It is RikaiDev/yomi **v0.5.0** plus `main` through `7b9ed52`, with unofficial
+> LINE patches: ForSecure **QR login** (accounts with no phone) and TalkService
+> `findContactByUserid` **@-ID search**. Version `0.5.0-fork.1`.
+
 **Yomi is an open-source LINE MCP server for your personal account. Read, reply,
 send images, and search every conversation from Claude or any local AI agent —
 without a browser, bot account, or LINE's own client.**
@@ -50,6 +55,34 @@ Guides: **[What is a LINE MCP server?](https://rikaidev.github.io/yomi/line-mcp/
 ---
 
 ## Getting started
+
+### Native Desktop preview
+
+Yomi Desktop puts the LINE inbox and local agent workspace in one native app.
+It bundles its own runtime: **users do not install Node, open Terminal, clone
+this repository, or configure `YOMI_RUN_MJS`.** Native Desktop is separate from
+the Claude Desktop MCPB extension described below.
+
+| Platform | General-user package | Signing status | Install experience |
+| --- | --- | --- | --- |
+| macOS 14+, Apple Silicon | `Yomi-Desktop-macOS-arm64-<version>.dmg` | Developer ID signed and Apple notarized | Open DMG → drag Yomi to Applications → open Yomi |
+| Windows 10/11 x64 | `Yomi-Desktop-Windows-x64-<version>-Setup.exe` | Trusted OSS signing application in progress | Download remains unavailable until signing and installer smoke pass |
+
+The macOS package has been tested through the real downloaded-app path:
+quarantined DMG, install to `/Applications`, Gatekeeper assessment, first
+launch, bundled-runtime message refresh, and no-terminal LINE login form. The
+Windows installer contains the equivalent in-app phone/PIN login flow and is
+tested on a native Windows runner before release.
+
+Desktop builds are experimental and unofficial. LINE changes may break them,
+and running an additional client may put an account at risk. Prefer a test
+account and keep a current backup. Preview installers are published as GitHub
+pre-releases only after platform signing is available.
+
+See the [desktop release process](DESKTOP-RELEASING.md),
+[code-signing policy](CODE_SIGNING.md), and [privacy policy](PRIVACY.md).
+
+### MCP server and Desktop Extension
 
 You need [Node.js](https://nodejs.org) and a LINE account. Yomi runs locally
 through `npx`; you do not need to clone this repository, install Bun, or build
@@ -489,6 +522,11 @@ Two login flows exist. **Both keep the same DESKTOPMAC desktop-client identity**
 Yomi never masquerades as LINE for Chrome, so it never kicks an official Chrome
 session on the same machine offline.
 
+> **⚠️ Single Desktop Session Limit:** LINE allows only **one desktop client session at a time**
+> per account. Because Yomi connects as a desktop secondary device (`DESKTOPMAC`), logging into Yomi
+> will sign out your official LINE Desktop app (and signing back into LINE Desktop will invalidate
+> Yomi's session). You cannot use Yomi and the official LINE Desktop client simultaneously.
+
 ### By phone number (`login`)
 
 You only need to give the agent your phone number in E.164 form — it supplies the
@@ -551,7 +589,7 @@ no scan at all, and future QR logins skip the PIN via the stored certificate.
 ### Sessions and credentials
 
 Yomi owns its own login. On startup it calls `resumeSession()` once, reading the
-LINE session from the macOS Keychain (service `com.yomi.credentials`, account
+LINE session from the macOS Keychain (service `dev.rikai.yomi.credentials`, account
 `line`) and silently refreshing the token if needed.
 
 - **First-party credentials.** The passwordless and QR logins persist the auth
@@ -559,9 +597,9 @@ LINE session from the macOS Keychain (service `com.yomi.credentials`, account
   refresh token, certificate, MID, and the E2EE keypair itself — then reads them
   back to verify the write actually landed. A login that can't be persisted fails
   loudly at login, not silently at the next restart.
-- **Backward compatibility.** If no session is found under `com.yomi.credentials`,
-  Yomi reads the legacy `com.inboxd.credentials` entry once, migrates it forward,
-  and never deletes it. An existing session keeps working with no re-login.
+- **Shared session.** The session is stored in the canonical `dev.rikai.yomi.credentials`
+  keychain entry (or local credential store), allowing Yomi MCP and Yomi Desktop to
+  share the exact same LINE login session seamlessly.
 - **Platform note.** On macOS the session lives in the login Keychain. On **Linux
   and Windows** Yomi currently falls back to a local JSON file — functional, but
   less protected than an OS secret store, and less exercised than the macOS path.

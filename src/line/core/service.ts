@@ -81,6 +81,15 @@ export class LineProtocolService extends EventEmitter {
   public getContact!: (mid: string) => Promise<any>
   public getGroup!: (groupId: string) => Promise<any>
   public listStickerPackages!: (language?: string) => Promise<any[]>
+  public getAllMessageBoxes!: (options?: {
+    minChatId?: string
+    maxChatId?: string
+    activeOnly?: boolean
+    messageBoxCountLimit?: number
+    withUnreadCount?: boolean
+    lastMessagesPerMessageBoxCount?: number
+    unreadOnly?: boolean
+  }) => Promise<{ messageBoxes: any[]; hasNext: boolean }>
   public searchStickerPackages!: (
     query: string,
     language?: string,
@@ -142,14 +151,6 @@ export class LineProtocolService extends EventEmitter {
     count?: number,
     before?: { messageId?: string; deliveredTime?: number },
   ) => Promise<any[]>
-  public downloadMessageContent!: (
-    messageId: string,
-    requestId?: string,
-  ) => Promise<Buffer>
-  public downloadMessageContentPreview!: (
-    messageId: string,
-    requestId?: string,
-  ) => Promise<Buffer>
   public markChatRead!: (
     chatId: string,
     messageId?: string,

@@ -69,3 +69,24 @@ test('derives directories with path.dirname, never by slicing on a forward slash
   const source = await readFile(join(SRC, 'auth/credential-store.ts'), 'utf8')
   expect(source).not.toContain("lastIndexOf('/')")
 })
+
+test('read-only desktop session disables Keychain mutation', async () => {
+  const previousNoKeychain = process.env.YOMI_NO_KEYCHAIN
+  const previousReadOnly = process.env.YOMI_READ_ONLY_SESSION
+  process.env.YOMI_NO_KEYCHAIN = '0'
+  process.env.YOMI_READ_ONLY_SESSION = '1'
+  try {
+    const { CredentialStore } = await import('./credential-store.js')
+    const dir = await mkdtemp(join(tmpdir(), 'yomi-readonly-'))
+    const store = new CredentialStore('line', join(dir, 'line.json'))
+    if (process.platform === 'darwin') {
+      expect(store.secureStorageEnabled).toBe(false)
+      expect(store.keychainService).toBeNull()
+    }
+  } finally {
+    if (previousNoKeychain == null) delete process.env.YOMI_NO_KEYCHAIN
+    else process.env.YOMI_NO_KEYCHAIN = previousNoKeychain
+    if (previousReadOnly == null) delete process.env.YOMI_READ_ONLY_SESSION
+    else process.env.YOMI_READ_ONLY_SESSION = previousReadOnly
+  }
+})

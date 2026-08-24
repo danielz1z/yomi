@@ -15,6 +15,7 @@ import { decryptKeyChain } from '../index.js'
  */
 export async function recoverBootstrapKeys(
   service: any,
+  options: { persist?: boolean } = {},
 ): Promise<any[] | null> {
   const bootstrapInput = await readBootstrapRecoveryInput(service)
   if (!bootstrapInput) {
@@ -26,7 +27,13 @@ export async function recoverBootstrapKeys(
     return null
   }
 
-  await persistRecoveredKeys(service, keys, bootstrapInput.mid)
+  service.e2eeManager.importKeys(keys)
+  if (bootstrapInput.mid) {
+    service.e2eeManager.bindSelfKeysToMid(bootstrapInput.mid)
+  }
+  if (options.persist !== false) {
+    await service.sessionState.saveE2EEKeys(keys)
+  }
   return keys
 }
 
@@ -152,25 +159,6 @@ function rebuildBootstrapKeys(input: {
   }))
 
   return Array.isArray(keys) && keys.length > 0 ? keys : null
-}
-
-/**
- * Persist recovered keys into the in-memory manager and session state.
- *
- * @param service - LineProtocolService-like object.
- * @param keys - Recovered key list.
- * @param mid - Optional self MID.
- */
-async function persistRecoveredKeys(
-  service: any,
-  keys: any[],
-  mid: string | null,
-) {
-  service.e2eeManager.importKeys(keys)
-  if (mid) {
-    service.e2eeManager.bindSelfKeysToMid(mid)
-  }
-  await service.sessionState.saveE2EEKeys(keys)
 }
 
 /**

@@ -25,6 +25,7 @@ permissions:
 
 jobs:
   bundle:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +64,7 @@ jobs:
           path: build/mcpb-${{ matrix.target_os }}-${{ matrix.cpu }}/yomi-${{ matrix.target_os }}-${{ matrix.cpu }}.mcpb
 
   release:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
     needs: bundle
     runs-on: ubuntu-latest
     permissions:

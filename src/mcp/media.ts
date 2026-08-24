@@ -14,7 +14,10 @@
  * callers get an honest error naming the reason.
  */
 
-import { downloadLineObsMediaObject } from '../line/client/obs-media-client.js'
+import {
+  downloadLineMessageData,
+  downloadLineObsMediaObject,
+} from '../line/client/obs-media-client.js'
 import { CONTENT_TYPE } from '../line/core/constants.js'
 import { decryptLineMediaBytes } from '../line/core/media-decrypt.js'
 
@@ -115,6 +118,20 @@ function resolveMimeType(
     return MIME_BY_EXTENSION[normalized]
   }
   return DEFAULT_MIME_BY_CONTENT_TYPE[contentType] || null
+}
+
+/**
+ * Resolve a legacy message's filename extension without requiring an OBS
+ * descriptor.  Older Talk messages expose MEDIA_CONTENT_INFO but omit OID/SID.
+ */
+function resolveMediaInfoExtension(message: any): string | null {
+  const info = parseJson<{ extension?: string }>(
+    message?.contentMetadata?.MEDIA_CONTENT_INFO,
+    {},
+  )
+  return typeof info.extension === 'string' && info.extension.trim()
+    ? info.extension.trim()
+    : null
 }
 
 /**
@@ -226,9 +243,31 @@ export async function fetchLineMessageMedia(
 
   const descriptor = resolveLineMediaDescriptor(message)
   if (!descriptor) {
-    throw new MissingDecryptMaterialError(
-      `message ${messageId} is missing OBS object metadata (OID/SID)`,
-    )
+    // Older/non-E2EE Talk messages carry MEDIA_CONTENT_INFO but omit OID/SID.
+    // Their object is addressed by message id at OBS /r/talk/m/{id}; the
+    // similarly named TalkService methods are not real `/S4` methods and
+    // return Invalid method name.  Keep the request at the OBS layer.
+    const downloaded = await downloadLineMessageData(service.client, {
+      messageId,
+      preview,
+    })
+    const contentMetadata = message?.contentMetadata || {}
+    const fileName =
+      (typeof contentMetadata.FILE_NAME === 'string' &&
+        contentMetadata.FILE_NAME) ||
+      (typeof contentMetadata.FILE_NAME_ORIGINAL === 'string' &&
+        contentMetadata.FILE_NAME_ORIGINAL) ||
+      (typeof contentMetadata.name === 'string' && contentMetadata.name) ||
+      null
+    return {
+      bytes: downloaded.bytes,
+      contentType,
+      fileName,
+      mimeType:
+        downloaded.mimeType ||
+        resolveMimeType(resolveMediaInfoExtension(message), contentType) ||
+        'application/octet-stream',
+    }
   }
 
   const encryptedBytes = await downloadLineObsMediaObject(service.client, {

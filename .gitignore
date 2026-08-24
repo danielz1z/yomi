@@ -6,3 +6,8 @@ credentials/
 *.pem
 .DS_Store
 build/
+target/
+desktop/target/
+desktop/mac-native/YomiDesktop
+desktop/mac-native/Yomi
+desktop/mac-native/Yomi.app/

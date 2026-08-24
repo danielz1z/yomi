@@ -17,7 +17,7 @@
  * result that either method ranks highly surfaces near the top. This is
  * deliberately not "semantic OR keyword": pure semantic over a partially-
  * embedded index silently drops exact matches that live in un-embedded
- * messages (the "search 台東 misses the chat that literally says 台東" bug),
+ * messages (the "search for a place name misses the exact same place name" bug),
  * and pure keyword misses paraphrases. Which methods actually contributed
  * is always reported via the `mode` field (`hybrid` | `semantic` |
  * `keyword`), never hidden.

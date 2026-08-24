@@ -141,6 +141,28 @@ export function mapMessageBoxList(boxes: unknown): unknown[] {
     : []
 }
 
+/** Merge paged message boxes without duplicate rows and stop on a stalled cursor. */
+export function mergeMessageBoxPages(
+  pages: Array<{ messageBoxes?: any[]; hasNext?: boolean }>,
+): any[] {
+  const merged = new Map<string, any>()
+  for (const page of pages) {
+    for (const box of page.messageBoxes ?? []) {
+      if (box?.id) merged.set(String(box.id), box)
+    }
+  }
+  return [...merged.values()]
+}
+
+export function nextMessageBoxCursor(
+  boxes: any[],
+  previous: string | undefined,
+): string | undefined {
+  const next = String(boxes.at(-1)?.id ?? '')
+  if (!next || next === previous) return undefined
+  return next
+}
+
 /**
  * Emit one debug log for previous-message responses.
  *

@@ -33,7 +33,7 @@ import {
  */
 export interface InsightPackage {
   window: { fromMs: number; toMs: number; messages: number }
-  /** Conversation nodes: per-conversation engagement (the 對象/關係 axis). */
+  /** Conversation nodes: per-conversation engagement along the contact/relationship axis. */
   relationships: Relationship[]
   /** Person nodes spanning ≥2 conversations — the network's cross-channel hubs. */
   connectors: Connector[]

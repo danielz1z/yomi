@@ -10,21 +10,12 @@ import { spawn } from 'node:child_process'
 import { createCliLogger } from '../util/log.js'
 
 /**
- * Yomi's own Keychain service name. Yomi performs a first-party
+ * Yomi's Keychain service name. Yomi performs a first-party
  * passwordless LINE login (see the `login` MCP tool) and persists the
  * resulting session here — auth token, certificate, refresh token, mid,
- * and the E2EE NaCl keypair. All writes go through this namespace only.
+ * and the E2EE NaCl keypair. Shared between Yomi MCP and Yomi Desktop.
  */
-const SERVICE_NAME = 'com.yomi.credentials'
-
-/**
- * Legacy keychain service name, read-only. Predates Yomi owning its own
- * credentials; kept solely so a live session created before this split
- * keeps working without forcing the operator through a phone-PIN
- * re-login. Entries here are read and migrated forward into
- * `SERVICE_NAME`, never written to and never deleted.
- */
-const LEGACY_SERVICE_NAME = 'com.inboxd.credentials'
+const SERVICE_NAME = 'dev.rikai.yomi.credentials'
 const authLog = createCliLogger('AUTH')
 
 export interface CredentialResult {
@@ -58,6 +49,7 @@ class KeychainCommands {
         '-w',
         password,
         '-U',
+        '-A',
       ])
 
       let stderr = ''
@@ -186,21 +178,13 @@ class KeychainCommands {
 /**
  * Service for managing macOS Keychain credentials.
  *
- * Reads try the canonical namespace first, then fall back to the legacy
- * namespace and migrate a hit forward. Writes and deletes only ever touch
- * the canonical namespace — the legacy entry is never deleted.
+ * Direct reads, writes, and deletes on the canonical Yomi namespace.
  */
 export class KeychainService {
   private commands: KeychainCommands
-  private legacyCommands: KeychainCommands
-  // Accounts whose canonical entry this process has already seen (read or
-  // written). Once seen, a later read miss is treated as transient and must
-  // NOT fall back to the legacy namespace — see getCredential.
-  private canonicalSeen = new Set<string>()
 
   constructor() {
     this.commands = new KeychainCommands(SERVICE_NAME)
-    this.legacyCommands = new KeychainCommands(LEGACY_SERVICE_NAME)
   }
 
   /**
@@ -214,54 +198,21 @@ export class KeychainService {
     account: string,
     password: string,
   ): Promise<CredentialResult> {
-    // `add-generic-password -U` updates the item in place when it exists, so
-    // this is a single atomic keychain op. Do NOT delete-then-add: that leaves
-    // a window where the entry is absent, during which a concurrent read falls
-    // through to the legacy namespace and resurrects stale credentials over the
-    // current ones (the root of the "session silently logged out" bug).
-    const result = await this.commands.set(account, password)
-    if (result.success) {
-      this.canonicalSeen.add(account)
-    }
-    return result
+    return await this.commands.set(account, password)
   }
 
   /**
    * Retrieves a credential from Keychain.
    *
-   * Tries the canonical namespace first. Only if this process has NEVER seen
-   * the canonical entry does it fall back to the legacy namespace and migrate a
-   * hit forward (one-time). Once the canonical entry has been seen, a later
-   * miss is transient (item mid-update) and returns the miss as-is rather than
-   * resurrecting a stale legacy copy on top of the live session.
-   *
    * @param account - Account name.
    * @returns Promise resolving to credential result.
    */
   async getCredential(account: string): Promise<CredentialResult> {
-    const primary = await this.commands.get(account)
-    if (primary.success) {
-      this.canonicalSeen.add(account)
-      return primary
-    }
-    if (this.canonicalSeen.has(account)) {
-      return primary
-    }
-
-    const legacy = await this.legacyCommands.get(account)
-    if (legacy.success && legacy.password) {
-      await this.commands.set(account, legacy.password)
-      this.canonicalSeen.add(account)
-      authLog.info('keychain.migrated_from_legacy', { account })
-    }
-    return legacy
+    return await this.commands.get(account)
   }
 
   /**
    * Deletes a credential from Keychain.
-   *
-   * Operates on the canonical namespace only. The legacy namespace is
-   * never deleted, even here.
    *
    * @param account - Account name.
    * @returns Promise resolving to credential result.

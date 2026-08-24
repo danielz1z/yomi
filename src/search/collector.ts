@@ -20,7 +20,7 @@
  * Also batch-embeds each chat's collected messages (when an Embedder is
  * supplied) so semantic search has vectors to rank over. The embedder is
  * always caller-injected — never imported directly here — so the MCP
- * server can pass its DefaultEmbedder while a host app (e.g. inboxd) can
+ * server can pass its DefaultEmbedder while a host app (e.g. Yomi Desktop) can
  * pass its own local model instead. Embedding failure (model unavailable,
  * offline first run, etc.) is caught per-chat and never aborts collection:
  * messages + bigram search_text are always stored regardless of whether
