@@ -13,6 +13,8 @@ export interface ParsedMessage {
   createdTime: number | null
   deliveredTime: number | null
   text: string | null
+  /** Legacy Talk media preview (field 17), when supplied inline by LINE. */
+  contentPreview: Buffer | string | null
   contentType: number
   contentMetadata: Record<string, any>
   chunks: any
@@ -52,6 +54,7 @@ export function parseMessage(msg: any): ParsedMessage | null {
           ? Number(msg[7])
           : (msg[6] ?? msg[7]),
     text: msg[10] || null,
+    contentPreview: msg[17] || null,
     contentType: msg[15] || 0,
     contentMetadata: msg[18] || {},
     chunks: msg[20] || null,

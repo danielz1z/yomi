@@ -7,10 +7,13 @@ import { encode } from '@toon-format/toon'
  * under src/mcp/handlers/ can import these without a circular dependency.
  */
 
-// Yomi logs in on its own (via the `login`/`login_complete` tools, or
-// `npx @rikaidev/yomi login`); it does not depend on inboxd for anything.
+// Yomi logs in on its own (via the `login`/`login_complete` or
+// `login_qr`/`login_qr_complete` tools, or `npx @rikaidev/yomi login` /
+// `login-qr`); session is shared with Yomi Desktop.
 export const NO_CREDENTIALS_MESSAGE =
-  'No persisted LINE session. Call the `login` tool, or run `npx @rikaidev/yomi login` in a terminal.'
+  'No persisted LINE session. Call the `login` tool (phone number + PIN) or `login_qr` ' +
+  '(QR code — for accounts with no phone number), or run `npx @rikaidev/yomi login` / ' +
+  '`npx @rikaidev/yomi login-qr` in a terminal.'
 
 // Shown when LINE invalidated a previously working session — distinct from
 // "never logged in" so the model tells the user the right story: the MCP
@@ -19,7 +22,8 @@ export const NO_CREDENTIALS_MESSAGE =
 const SESSION_REVOKED_MESSAGE =
   'LINE signed this device out — usually because the same account logged in ' +
   'somewhere else (another device, or a terminal `login` run). The MCP ' +
-  'connection itself is fine. Call the `login` tool to reconnect; cached ' +
+  'connection itself is fine. Call the `login` tool to reconnect (or ' +
+  '`login_qr` if the account has no phone number); cached ' +
   'credentials usually complete without a new PIN.'
 
 /**
@@ -41,7 +45,8 @@ export function sessionRequiredError() {
 const SESSION_EXPIRED_MESSAGE =
   'The saved LINE session expired and the automatic token refresh failed. ' +
   'Nothing signed this device out — the token simply aged out, and the MCP ' +
-  'connection itself is fine. Call the `login` tool to reconnect; cached ' +
+  'connection itself is fine. Call the `login` tool to reconnect (or ' +
+  '`login_qr` if the account has no phone number); cached ' +
   'credentials usually complete without a new PIN.'
 
 /**

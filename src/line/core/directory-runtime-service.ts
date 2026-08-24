@@ -2,7 +2,10 @@
  * LINE core directory/runtime capability.
  */
 
-import { fetchStickerPackageMeta } from '../client/sticker-meta.js'
+import {
+  fetchStickerPackageMeta,
+  localizedStickerTitle,
+} from '../client/sticker-meta.js'
 import { createContactQueryService } from './contact-query-service.js'
 import { createGroupQueryService } from './group-query-service.js'
 
@@ -51,7 +54,19 @@ export function createDirectoryRuntimeService(service: any) {
      * @returns Owned sticker packages: { packageId, title, version }.
      */
     async listStickerPackages(language = 'en'): Promise<any[]> {
-      return service.client.getOwnedStickerPackages(language)
+      const owned = await service.client.getOwnedStickerPackages(language)
+      return Promise.all(
+        owned.map(async (pkg: any) => {
+          const meta = await fetchStickerPackageMeta(
+            String(pkg.packageId),
+          ).catch(() => null)
+          return {
+            ...pkg,
+            title: localizedStickerTitle(meta?.title, language, pkg.title),
+            titles: meta?.title ?? {},
+          }
+        }),
+      )
     },
 
     /**

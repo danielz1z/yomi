@@ -149,14 +149,6 @@ export class LineClient extends EventEmitter {
     payload: Record<string, unknown>,
   ) => Promise<any>
   public restoreE2EEKeyBackup!: (restoreKey: string) => Promise<any>
-  public downloadMessageContent!: (
-    messageId: string,
-    requestId?: string,
-  ) => Promise<Buffer>
-  public downloadMessageContentPreview!: (
-    messageId: string,
-    requestId?: string,
-  ) => Promise<Buffer>
   public logoutZ!: () => Promise<any>
   public getOwnedStickerPackages!: (
     language?: string,
@@ -181,6 +173,7 @@ export class LineClient extends EventEmitter {
     mid: string,
     reference?: string,
   ) => Promise<any>
+  public findContactByUserid!: (searchId: string) => Promise<any>
   public blockContact!: (mid: string) => Promise<boolean>
   public unblockContact!: (mid: string) => Promise<boolean>
   public acceptChatInvitation!: (chatMid: string) => Promise<boolean>

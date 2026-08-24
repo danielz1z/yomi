@@ -10,7 +10,7 @@
  * - `M` is the mentioned user's MID; `S`/`E` are the start/end offsets as
  *   *strings*, not numbers.
  * - The range is half-open `[S, E)`, measured in UTF-16 code units — i.e.
- *   plain JS string indices (`"@鄭富源".length === 4` matched `S:"0", E:"4"`).
+ *   plain JavaScript string indices (a three-code-unit name plus `@` matched `S:"0", E:"4"`).
  * - Key order inside a mentionee object is not significant.
  * - MENTION rides in `contentMetadata`, which is never part of an E2EE
  *   ciphertext payload — it was observed in the clear on a real message.

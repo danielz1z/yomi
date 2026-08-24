@@ -86,10 +86,21 @@ async function verifyEra(expectedEra, supportsApps = false) {
 
     const toolList = await client.listTools()
     const { tools } = toolList
-    if (tools.length !== 41) {
-      throw new Error(`tools/list returned ${tools.length} tools; expected 41`)
+    // Upstream 0.5.0 ships 41 tools; this fork adds login_qr,
+    // login_qr_complete, and find_contact_by_id.
+    const expectedTools = 44
+    if (tools.length !== expectedTools) {
+      throw new Error(
+        `tools/list returned ${tools.length} tools; expected ${expectedTools}`,
+      )
     }
-    if (new Set(tools.map((tool) => tool.name)).size !== tools.length) {
+    const names = new Set(tools.map((tool) => tool.name))
+    for (const required of ['login_qr', 'login_qr_complete', 'find_contact_by_id']) {
+      if (!names.has(required)) {
+        throw new Error(`tools/list is missing fork tool ${required}`)
+      }
+    }
+    if (names.size !== tools.length) {
       throw new Error('tools/list returned duplicate tool names')
     }
     if (

@@ -8,6 +8,11 @@
 
 # Yomi (読み) — the personal LINE MCP server
 
+> **Fork note (danielz1z/yomi):** this tree is **not** a clean RikaiDev release.
+> It is RikaiDev/yomi **v0.5.0** plus `main` through `7b9ed52`, with unofficial
+> LINE patches: ForSecure **QR login** (accounts with no phone) and TalkService
+> `findContactByUserid` **@-ID search**. Version `0.5.0-fork.1`.
+
 **Yomi is an open-source LINE MCP server for your personal account. Read, reply,
 send images, and search every conversation from Claude or any local AI agent —
 without a browser, bot account, or LINE's own client.**
@@ -50,6 +55,34 @@ Guides: **[What is a LINE MCP server?](https://rikaidev.github.io/yomi/line-mcp/
 ---
 
 ## Getting started
+
+### Native Desktop preview
+
+Yomi Desktop puts the LINE inbox and local agent workspace in one native app.
+It bundles its own runtime: **users do not install Node, open Terminal, clone
+this repository, or configure `YOMI_RUN_MJS`.** Native Desktop is separate from
+the Claude Desktop MCPB extension described below.
+
+| Platform | General-user package | Signing status | Install experience |
+| --- | --- | --- | --- |
+| macOS 14+, Apple Silicon | `Yomi-Desktop-macOS-arm64-<version>.dmg` | Developer ID signed and Apple notarized | Open DMG → drag Yomi to Applications → open Yomi |
+| Windows 10/11 x64 | `Yomi-Desktop-Windows-x64-<version>-Setup.exe` | Trusted OSS signing application in progress | Download remains unavailable until signing and installer smoke pass |
+
+The macOS package has been tested through the real downloaded-app path:
+quarantined DMG, install to `/Applications`, Gatekeeper assessment, first
+launch, bundled-runtime message refresh, and no-terminal LINE login form. The
+Windows installer contains the equivalent in-app phone/PIN login flow and is
+tested on a native Windows runner before release.
+
+Desktop builds are experimental and unofficial. LINE changes may break them,
+and running an additional client may put an account at risk. Prefer a test
+account and keep a current backup. Preview installers are published as GitHub
+pre-releases only after platform signing is available.
+
+See the [desktop release process](DESKTOP-RELEASING.md),
+[code-signing policy](CODE_SIGNING.md), and [privacy policy](PRIVACY.md).
+
+### MCP server and Desktop Extension
 
 You need [Node.js](https://nodejs.org) and a LINE account. Yomi runs locally
 through `npx`; you do not need to clone this repository, install Bun, or build
@@ -408,6 +441,9 @@ Once connected, tell the agent:
 
 > *"Log into LINE — my number is +8869XXXXXXXX."*
 
+(or *"Log into LINE by QR code"* — the path for accounts with **no phone number**,
+e.g. created via Apple; see [Logging in](#logging-in).)
+
 Approve the device on your phone (see [Logging in](#logging-in)), and:
 
 > *"Summarize my unread LINE and tell me who's waiting on a reply."*
@@ -416,7 +452,7 @@ Approve the device on your phone (see [Logging in](#logging-in)), and:
 
 ## What you can do
 
-Yomi exposes **20 tools** over MCP (the ones worth naming; see the tables). Large
+Yomi exposes **44 tools** over MCP (the ones worth naming; see the tables). Large
 read results use token-efficient [TOON](https://github.com/toon-format/toon);
 small status and write results use compact JSON. Errors remain plain text and media
 uses native MCP image/audio/resource content.
@@ -433,6 +469,8 @@ fake success.
 | `get_chat_messages` | One conversation, decrypted. Paginate deeper with a `before` cursor. Each message carries any raw `MENTION` metadata so you can see who was @-mentioned (a literal `@name` in the text is *not* a mention). |
 | `get_message_media` / `get_message_image` | Any decrypted attachment (image/video/audio/file). Honest error on non-media. |
 | `find_contact` / `list_contacts` | Friend-list lookup by name substring, or the full list. Raw LINE data — no fuzzy scoring, no affinity ranking. |
+| `find_contact_by_id` | Resolve a LINE ID or Official Account basic ID (leading `@`, e.g. `@shop`) to a contact (mid + profile) without adding it — TalkService `findContactByUserid`, the ID-search method desktop clients are allowed to call. Honest, distinct errors for no-match (ID unset or search disabled by the owner), malformed ID, and LINE capability rejections. |
+| `add_friend` | Adds a friend now, by `mid` (raw) or by `userId` (LINE ID / `@official` basic ID — resolved via the same ID search, then added by MID). Honest error on no match. |
 | `get_group_members` | Members of a persistent group. Ad-hoc rooms without a group record fail honestly rather than returning a fake empty list. |
 
 ### Insight (read the situation, not just the messages)
@@ -468,7 +506,8 @@ fake success.
 
 | Tool | Does |
 | --- | --- |
-| `login` / `login_complete` | Passwordless secondary-device login. See below. `login` is the only tool callable without an existing session. |
+| `login` / `login_complete` | Passwordless secondary-device login (phone number + PIN). See below. Callable without an existing session. |
+| `login_qr` / `login_qr_complete` | QR-code secondary-device login (LINE ForSecure) — **no phone number needed**, for accounts that have none. See below. Callable without an existing session. |
 
 ---
 
@@ -478,6 +517,17 @@ fake success.
 (*Settings › Account › Allow login on other devices*). Without it LINE never offers
 this device a sign-in prompt — this is the single most common reason a first login
 appears to hang.
+
+Two login flows exist. **Both keep the same DESKTOPMAC desktop-client identity** —
+Yomi never masquerades as LINE for Chrome, so it never kicks an official Chrome
+session on the same machine offline.
+
+> **⚠️ Single Desktop Session Limit:** LINE allows only **one desktop client session at a time**
+> per account. Because Yomi connects as a desktop secondary device (`DESKTOPMAC`), logging into Yomi
+> will sign out your official LINE Desktop app (and signing back into LINE Desktop will invalidate
+> Yomi's session). You cannot use Yomi and the official LINE Desktop client simultaneously.
+
+### By phone number (`login`)
 
 You only need to give the agent your phone number in E.164 form — it supplies the
 region itself (e.g. `TW` for a `+886` number) when it calls the tool.
@@ -507,6 +557,29 @@ Once you've logged in, the session — including a login *certificate* — is pe
 (see [below](#sessions-and-credentials)), and future logins **skip the PIN
 entirely**.
 
+### By QR code (`login_qr`) — no phone number needed
+
+For accounts that **have no phone number** (e.g. created via Apple), the phone
+login above cannot work — LINE's passwordless flow starts from a phone number. QR
+login starts from the other end: the account is identified by whichever primary
+phone scans the code, exactly like official LINE for Chrome. Yomi implements LINE's
+current **ForSecure** QR flow (`createQrCodeForSecure` / `qrCodeLoginV2ForSecure`
+with server-paced long polling); the legacy `createQrCode` flow is deliberately
+absent because LINE 26+ expires such sessions server-side.
+
+- **From any MCP client** — `login_qr` returns the QR as a scannable PNG image plus
+  the raw URL; scan it with LINE on your primary phone and confirm the new device.
+  `login_qr_complete` does the waiting (call it immediately); if LINE asks for a
+  PIN on the phone it returns early with that PIN — enter it, then call
+  `login_qr_complete` again.
+
+- **From a terminal** — `npx @rikaidev/yomi login-qr` renders the QR code in the
+  terminal and runs the whole flow on stdout, PIN and all.
+
+The QR login persists the **same session shape** as the phone login (auth token,
+refresh token, certificate, MID, E2EE keypair), so the next start restores it with
+no scan at all, and future QR logins skip the PIN via the stored certificate.
+
 > There is also an experimental [MCP Apps](https://modelcontextprotocol.io) UI (a
 > `ui://yomi/login` card) for clients that render interactive views. It is
 > spec-correct and renders under the MCP Inspector, but some hosts fetch the resource
@@ -516,23 +589,25 @@ entirely**.
 ### Sessions and credentials
 
 Yomi owns its own login. On startup it calls `resumeSession()` once, reading the
-LINE session from the macOS Keychain (service `com.yomi.credentials`, account
+LINE session from the macOS Keychain (service `dev.rikai.yomi.credentials`, account
 `line`) and silently refreshing the token if needed.
 
-- **First-party credentials.** The passwordless login persists the auth token,
+- **First-party credentials.** The passwordless and QR logins persist the auth
+  token,
   refresh token, certificate, MID, and the E2EE keypair itself — then reads them
   back to verify the write actually landed. A login that can't be persisted fails
   loudly at login, not silently at the next restart.
-- **Backward compatibility.** If no session is found under `com.yomi.credentials`,
-  Yomi reads the legacy `com.inboxd.credentials` entry once, migrates it forward,
-  and never deletes it. An existing session keeps working with no re-login.
+- **Shared session.** The session is stored in the canonical `dev.rikai.yomi.credentials`
+  keychain entry (or local credential store), allowing Yomi MCP and Yomi Desktop to
+  share the exact same LINE login session seamlessly.
 - **Platform note.** On macOS the session lives in the login Keychain. On **Linux
   and Windows** Yomi currently falls back to a local JSON file — functional, but
   less protected than an OS secret store, and less exercised than the macOS path.
   Native secure-storage backends (libsecret / DPAPI) are planned; until then, treat
   a non-macOS install accordingly.
 
-Every tool except `login` and the offline scope/search tools returns an honest error
+Every tool except `login`/`login_qr` and the offline scope/search tools returns an
+honest error
 when there is no session. Yomi is otherwise a pure query server — it never polls,
 never backfills in the background; each tool call makes exactly the LINE requests it
 needs, and `collect_messages` is the only path that fetches across many chats at once.
@@ -623,7 +698,8 @@ stated separately and guarded by a test):
 ```bash
 bun install                 # install dependencies (or npm install)
 bun run.mjs                 # run the stdio MCP server
-bun run.mjs login           # run the login flow in a terminal
+bun run.mjs login           # run the login flow in a terminal (phone + PIN)
+bun run.mjs login-qr        # run the QR login flow in a terminal (no phone number)
 npm run build               # tsc --noEmit — type-check only (Yomi ships & runs from src/)
 npm test                    # bun test
 ```
@@ -635,8 +711,8 @@ what actually starts a session.
 ```
 src/
   line/     LINE protocol core: TCompact/Thrift codec, E2EE (Letter-Sealing,
-            group keys, media), Talk/Auth/Sync service clients, session state,
-            passwordless login flow.
+            group keys, media), Talk/Auth/Sync service clients, session
+            state, passwordless + ForSecure QR login flows.
   auth/     Credential store (macOS Keychain, JSON-file fallback off-darwin).
   search/   Local cross-conversation index (SQLite + FTS5) and the offline
             embedding pipeline (transformers.js).
@@ -684,7 +760,9 @@ projects, whose field layouts, E2EE chunk ordering, request shapes, and Thrift
 definitions informed this independent implementation:
 
 - **[evex-dev/linejs](https://github.com/evex-dev/linejs)** (MIT) — request shapes
-  and the Letter-Sealing E2EE payload layout.
+  and the Letter-Sealing E2EE payload layout. The ForSecure QR login state machine
+  (`createQrCodeForSecure` / `qrCodeLoginV2ForSecure`) and the RelationService
+  ID-search request shape were ported from its reference implementation.
 - **[DeachSword/CHRLINE](https://github.com/DeachSword/CHRLINE)** (BSD-3-Clause) —
   protocol field layouts and the passwordless login flow.
 - **[er1ce/LINE-Protocol](https://github.com/er1ce/LINE-Protocol)** (Apache-2.0) —

@@ -177,17 +177,6 @@ export function buildRecentMessagesRequest(chatId, count) {
 }
 
 /**
- * Build a message-content download request.
- *
- * @param requestId - Client request identifier.
- * @param messageId - LINE message identifier.
- * @returns Thrift request fields.
- */
-export function buildDownloadMessageContentRequest(requestId, messageId) {
-  return [stringField(1, requestId), stringField(2, messageId)]
-}
-
-/**
  * Build a single-MID lookup request.
  *
  * @param mid - Target MID.
@@ -342,7 +331,7 @@ export function buildCreateChatRequest(name, mids, chatType = 1) {
  * Single struct arg at field 1: `{ reqSeq, messageId, reactionType{ predefined } }`.
  * The messageId is a thrift i64 (LINE message ids are 64-bit), so it is passed
  * as a BigInt. `reactionType` is LINE's predefinedReactionType enum:
- * 2 = LIKE 👍, 3 = LOVE ❤️, 4 = LAUGH 😆, 5 = SURPRISE 😮, 6 = SAD 😢, 7 = ANGRY 😡.
+ * Protocol emoji mapping: 2 = LIKE 👍, 3 = LOVE ❤️, 4 = LAUGH 😆, 5 = SURPRISE 😮, 6 = SAD 😢, 7 = ANGRY 😡.
  *
  * @param messageId - Target message id (numeric string).
  * @param reactionType - Predefined reaction type (default 2 = LIKE).
@@ -406,6 +395,25 @@ export function buildFindAndAddContactsByMidRequest(
     i32Field(3, 0),
     stringField(4, reference),
   ]
+}
+
+/**
+ * Build the findContactByUserid request fields (search a contact by LINE ID
+ * or Official Account basic ID).
+ *
+ * One of the oldest TalkService methods, so it predates the reqSeq
+ * convention: the search id sits at field 2 and there is NO field 1. (The
+ * thrift args are exactly `{ 2: string searchId }` — see linejs
+ * `findContactByUserid_args` and CHRLINE TalkService.findContactByUserid.)
+ * Unlike RelationService findContactBySearchIdOrTicketV3, which LINE
+ * capability-gates away from desktop clients ("API method not capable" on
+ * DESKTOPMAC), this method is what desktop-class clients may actually call.
+ *
+ * @param searchId - LINE ID or `@`-prefixed Official Account basic ID.
+ * @returns Thrift request fields.
+ */
+export function buildFindContactByUseridRequest(searchId) {
+  return [stringField(2, searchId)]
 }
 
 /**

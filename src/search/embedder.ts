@@ -6,7 +6,7 @@
  * a default implementation (./default-embedder.ts, transformers.js/ONNX) so
  * the MCP server works standalone, but nothing in store.ts/collector.ts
  * imports that default directly — they only depend on this interface, so a
- * host app (e.g. inboxd) can inject its own embedder (its local MLX
+ * host app (e.g. Yomi Desktop) can inject its own embedder (its local MLX
  * `generateEmbedding`) instead. See ./default-embedder.ts's doc comment for
  * the exact adapter shape.
  */
@@ -34,7 +34,7 @@ export interface Embedder {
   /**
    * Embed a single *search query* into a dense vector, applying whatever
    * asymmetric retrieval instruction/prefix the underlying model expects
-   * (e.g. bge's "为这个句子生成表示以用于检索相关文章：" or e5's `query: `).
+   * (for example, BGE's localized retrieval prefix or E5's `query: ` prefix).
    * Falls back to embed([query])[0] when the model has no such convention.
    *
    * @param query - Raw user search query.

@@ -6,11 +6,13 @@
  *   yomi                Start the MCP stdio server (default)
  *   yomi serve          Same as above, explicit
  *   yomi login [...]    Run the passwordless login flow in a terminal
+ *   yomi login-qr       Run the QR (ForSecure) login flow in a terminal
  *   yomi help           Show this help
  *   yomi version        Print version
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Load the compiled `dist/` build when it exists (this is what the npm
@@ -22,7 +24,23 @@ import { fileURLToPath } from 'node:url';
 // STRIPPING), which is exactly how every 0.1.x release failed to start.
 // `files` in package.json must therefore always ship `dist/`.
 const distUrl = new URL('./dist/', import.meta.url);
-const built = existsSync(fileURLToPath(new URL('mcp/server.js', distUrl)));
+const sourceRoot = fileURLToPath(new URL('./src/', import.meta.url));
+
+function newestMtime(directory) {
+  if (!existsSync(directory)) return 0;
+  let newest = 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) newest = Math.max(newest, newestMtime(path));
+    else if (entry.name.endsWith('.ts')) newest = Math.max(newest, statSync(path).mtimeMs);
+  }
+  return newest;
+}
+
+const distServerPath = fileURLToPath(new URL('mcp/server.js', distUrl));
+const distMtime = existsSync(distServerPath) ? statSync(distServerPath).mtimeMs : 0;
+const sourceIsNewer = existsSync(sourceRoot) && newestMtime(sourceRoot) > distMtime;
+const built = existsSync(distServerPath) && process.env.YOMI_DEV_SOURCE !== '1' && !sourceIsNewer;
 const base = built ? distUrl : new URL('./src/', import.meta.url);
 const ext = built ? '.js' : '.ts';
 
@@ -38,6 +56,210 @@ switch (cmd) {
     const code = await cliLogin(args.slice(1));
     process.exit(code);
   }
+  case 'login-qr': {
+    const { cliLoginQr } = await load('cli/login-qr');
+    const code = await cliLoginQr();
+    process.exit(code);
+  }
+  case 'setup-mcp':
+  case 'integrate': {
+    const { integrateAllClients, integrateClient, getClientTargets } = await load('mcp/integrator');
+    const targetArg = args[1];
+    if (targetArg) {
+      const targets = getClientTargets();
+      const matched = targets.find(t => t.id === targetArg || t.name.toLowerCase().includes(targetArg.toLowerCase()));
+      if (matched) {
+        const res = integrateClient(matched);
+        console.log(JSON.stringify(res));
+      } else {
+        console.error(`Target client "${targetArg}" not recognized.`);
+        process.exit(1);
+      }
+    } else {
+      const report = integrateAllClients();
+      console.log(JSON.stringify(report));
+    }
+    process.exit(0);
+  }
+  case 'chats':
+  case 'conversations': {
+    const { cliListConversationsJson } = await load('cli/query');
+    const limit = args[1] && args[1] !== 'all' ? parseInt(args[1], 10) : undefined;
+    const attentionOnly = args.includes('--attention-only');
+    const firstPage = args.includes('--first-page');
+    const semantic = args.includes('--semantic');
+    const json = await cliListConversationsJson({ limit, attentionOnly, firstPage, semantic });
+    console.log(JSON.stringify(json));
+    process.exit(0);
+  }
+  case 'messages':
+  case 'chat-messages': {
+    const { cliGetChatMessagesJson } = await load('cli/query');
+    const chatId = args[1];
+    const count = args[2] ? parseInt(args[2], 10) : 30;
+    if (!chatId) {
+      console.error(JSON.stringify({ error: 'chatId required' }));
+      process.exit(1);
+    }
+    const json = await cliGetChatMessagesJson(chatId, count);
+    console.log(JSON.stringify(json));
+    process.exit(0);
+  }
+  case 'attention-classify': {
+    const { cliClassifyAttentionJson } = await load('cli/query');
+    let input = '';
+    for await (const chunk of process.stdin) input += chunk;
+    const items = JSON.parse(input || '[]');
+    console.log(JSON.stringify(await cliClassifyAttentionJson(items)));
+    process.exit(0);
+  }
+  case 'list-stickers': {
+    const { cliListStickersJson } = await load('cli/query');
+    const language = args[1] || 'zh_TW';
+    console.log(JSON.stringify(await cliListStickersJson(language)));
+    process.exit(0);
+  }
+  case 'sticker-previews': {
+    const { cliStickerPreviewsJson } = await load('cli/query');
+    const packageId = args[1];
+    const limit = args[2] ? parseInt(args[2], 10) : 12;
+    const language = args[3] || 'en';
+    if (!packageId) {
+      console.error(JSON.stringify({ error: 'packageId required' }));
+      process.exit(1);
+    }
+    console.log(JSON.stringify(await cliStickerPreviewsJson(packageId, limit, language)));
+    process.exit(0);
+  }
+  case 'send-sticker': {
+    const chatId = args[1];
+    const stickerId = args[2];
+    const packageId = args[3];
+    const version = args[4] || '1';
+    if (!chatId || !stickerId || !packageId) {
+      console.error(JSON.stringify({ error: 'chatId, stickerId and packageId required' }));
+      process.exit(1);
+    }
+    const { LineProtocolService } = await load('line/core/service');
+    const service = new LineProtocolService();
+    if (!(await service.resumeSession())) process.exit(1);
+    const sent = await service.sendSticker(chatId, stickerId, packageId, version);
+    console.log(JSON.stringify({ sent: true, messageId: sent?.id ?? sent?.messageId ?? null }));
+    process.exit(0);
+  }
+  case 'send-message': {
+    const chatId = args[1];
+    const text = args.slice(2).join(' ').trim();
+    if (!chatId || !text) {
+      console.error(JSON.stringify({ error: 'chatId and text required' }));
+      process.exit(1);
+    }
+    const { LineProtocolService } = await load('line/core/service');
+    const { buildMentionMetadata } = await load('line/core/mention');
+    const service = new LineProtocolService();
+    if (!(await service.resumeSession())) process.exit(1);
+    const targets = JSON.parse(process.env.YOMI_MENTIONS_JSON || '[]');
+    const mentions = targets.flatMap(({ mid, name }) => {
+      const start = text.indexOf(`@${name}`);
+      return start < 0 ? [] : [{ mid, start, end: start + name.length + 1 }];
+    });
+    const metadata = mentions.length ? { MENTION: buildMentionMetadata(text, mentions) } : undefined;
+    const sent = await service.sendMessage(chatId, text, metadata);
+    console.log(JSON.stringify({
+      sent: true,
+      messageId: sent?.id ?? sent?.messageId ?? null,
+    }));
+    process.exit(0);
+  }
+  case 'send-image': {
+    const chatId = args[1];
+    const imagePath = args[2];
+    if (!chatId || !imagePath) {
+      console.error(JSON.stringify({ error: 'chatId and imagePath required' }));
+      process.exit(1);
+    }
+    const { LineProtocolService } = await load('line/core/service');
+    const { readFile } = await import('node:fs/promises');
+    const { basename } = await import('node:path');
+    const service = new LineProtocolService();
+    if (!(await service.resumeSession())) process.exit(1);
+    const bytes = await readFile(imagePath);
+    if (bytes.length === 0) {
+      console.error(JSON.stringify({ error: 'image is empty' }));
+      process.exit(1);
+    }
+    const sent = await service.sendImage(chatId, bytes, basename(imagePath));
+    console.log(JSON.stringify({
+      sent: true,
+      messageId: sent?.messageId ?? sent?.id ?? null,
+      oid: sent?.oid ?? null,
+    }));
+    process.exit(0);
+  }
+  case 'send-file': {
+    const chatId = args[1];
+    const filePath = args[2];
+    if (!chatId || !filePath) {
+      console.error(JSON.stringify({ error: 'chatId and filePath required' }));
+      process.exit(1);
+    }
+    const { LineProtocolService } = await load('line/core/service');
+    const { readFile } = await import('node:fs/promises');
+    const { basename } = await import('node:path');
+    const service = new LineProtocolService();
+    if (!(await service.resumeSession())) process.exit(1);
+    const bytes = await readFile(filePath);
+    if (bytes.length === 0) {
+      console.error(JSON.stringify({ error: 'file is empty' }));
+      process.exit(1);
+    }
+    const sent = await service.sendFile(chatId, bytes, basename(filePath));
+    console.log(JSON.stringify({
+      sent: true,
+      messageId: sent?.messageId ?? sent?.id ?? null,
+      oid: sent?.oid ?? null,
+    }));
+    process.exit(0);
+  }
+  case 'media-preview': {
+    const chatId = args[1];
+    const messageId = args[2];
+    if (!chatId || !messageId) {
+      console.error(JSON.stringify({ error: 'chatId and messageId required' }));
+      process.exit(1);
+    }
+    const { LineProtocolService } = await load('line/core/service');
+    const { fetchLineMessageMedia } = await load('mcp/media');
+    const service = new LineProtocolService();
+    if (!(await service.resumeSession())) process.exit(1);
+    const result = await fetchLineMessageMedia(service, chatId, messageId, args[3] !== 'original');
+    console.log(JSON.stringify({
+      data: result.bytes.toString('base64'),
+      mimeType: result.mimeType,
+      fileName: result.fileName ?? null,
+    }));
+    process.exit(0);
+  }
+  case 'mark-read': {
+    const { cliMarkReadJson } = await load('cli/query');
+    const chatId = args[1];
+    const msgId = args[2];
+    if (!chatId) {
+      console.error(JSON.stringify({ error: 'chatId required' }));
+      process.exit(1);
+    }
+    const res = await cliMarkReadJson(chatId, msgId);
+    console.log(JSON.stringify(res));
+    process.exit(0);
+  }
+  case 'summary':
+  case 'recent':
+  case 'query': {
+    const { cliRecentSummary } = await load('cli/query');
+    const summary = await cliRecentSummary();
+    console.log(summary);
+    process.exit(0);
+  }
   case 'serve':
     await load('mcp/server');
     break;
@@ -50,13 +272,15 @@ Usage:
   yomi                Start the MCP stdio server (default)
   yomi serve          Same as above, explicit
   yomi login [...]    Run the passwordless login flow in a terminal
+  yomi login-qr       Run the QR (ForSecure) login flow in a terminal — no phone number needed
   yomi help           Show this help
   yomi version        Print version
 
 Examples:
   npx @rikaidev/yomi                  # start MCP server
-  npx @rikaidev/yomi login            # interactive login
-  npx @rikaidev/yomi login --phone +886912345678 --region TW`);
+  npx @rikaidev/yomi login            # interactive login (phone + PIN)
+  npx @rikaidev/yomi login --phone +886912345678 --region TW
+  npx @rikaidev/yomi login-qr         # interactive QR login (scan with your phone)`);
     break;
   case 'version':
   case '--version':

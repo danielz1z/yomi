@@ -68,9 +68,11 @@ export class LineProtocolService extends EventEmitter {
   // createChatRuntimeService (see constructor below) — TS cannot see that
   // assignment, so these use definite-assignment assertions. Yomi's MCP
   // server calls resumeSession/sendMessage/getRecentMessages/
-  // getPreviousMessages/download* only; it never calls startPwlessLogin
-  // (still present for compile completeness).
+  // getPreviousMessages/download* only; it never calls startPwlessLogin or
+  // startQrLogin from the query paths (still present for compile
+  // completeness).
   public startPwlessLogin!: (phone: string, region: string) => Promise<any>
+  public startQrLogin!: () => Promise<any>
   public logout!: () => Promise<void>
   public invalidateSession!: (reason?: string) => Promise<void>
   public tryRefreshToken!: () => Promise<boolean>
@@ -79,6 +81,15 @@ export class LineProtocolService extends EventEmitter {
   public getContact!: (mid: string) => Promise<any>
   public getGroup!: (groupId: string) => Promise<any>
   public listStickerPackages!: (language?: string) => Promise<any[]>
+  public getAllMessageBoxes!: (options?: {
+    minChatId?: string
+    maxChatId?: string
+    activeOnly?: boolean
+    messageBoxCountLimit?: number
+    withUnreadCount?: boolean
+    lastMessagesPerMessageBoxCount?: number
+    unreadOnly?: boolean
+  }) => Promise<{ messageBoxes: any[]; hasNext: boolean }>
   public searchStickerPackages!: (
     query: string,
     language?: string,
@@ -140,14 +151,6 @@ export class LineProtocolService extends EventEmitter {
     count?: number,
     before?: { messageId?: string; deliveredTime?: number },
   ) => Promise<any[]>
-  public downloadMessageContent!: (
-    messageId: string,
-    requestId?: string,
-  ) => Promise<Buffer>
-  public downloadMessageContentPreview!: (
-    messageId: string,
-    requestId?: string,
-  ) => Promise<Buffer>
   public markChatRead!: (
     chatId: string,
     messageId?: string,
@@ -173,6 +176,8 @@ export class LineProtocolService extends EventEmitter {
   public cancelReaction!: (messageId: string) => Promise<any>
   public unsendMessage!: (messageId: string) => Promise<any>
   public addFriend!: (mid: string, reference?: string) => Promise<any>
+  public findContactByUserId!: (userId: string) => Promise<any>
+  public addFriendByUserId!: (userId: string) => Promise<any>
   public blockContact!: (mid: string) => Promise<any>
   public unblockContact!: (mid: string) => Promise<any>
   public acceptInvitation!: (chatMid: string) => Promise<any>
