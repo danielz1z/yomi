@@ -7,6 +7,7 @@ import {
   encryptLineMediaBytes,
   encryptLineVideoBytes,
 } from './media-encrypt.js'
+import { resolveTextSendMode, SendModeRefusedError } from './send-mode.js'
 import { i32Field } from './thrift/fields/builders.js'
 import { extractVideoThumbnail } from './video-thumbnail.js'
 
@@ -198,18 +199,74 @@ export function createMessageCommandService(getClient, e2eeManager) {
      * does not touch what gets encrypted or how; it is a no-op when the
      * caller supplies nothing, so existing behavior is unchanged.
      *
+     * `text.allowPlaintextForOfficial`, when true alongside `e2ee`, opts this
+     * one send into the Official Account plaintext policy in
+     * `./send-mode.ts`: the mode is selected BEFORE the send (contact
+     * verification + one negotiation), E2EE is still used whenever a peer
+     * key exists, and plaintext (ordinary text in Thrift field 10, no E2EE
+     * chunks or markers) is sent only to a verified OA whose negotiation
+     * came back confirmed-empty. Any other outcome throws before sending.
+     * The returned LINE result carries `sendMode` so callers can report
+     * which path was taken. Exactly one send in every branch, no retry.
+     *
      * @param to - Recipient MID
      * @param text - Text content or richer message options
      * @returns LINE sendMessage result
      */
     async sendMessage(to, text) {
       if (typeof text === 'object' && text !== null && text.e2ee) {
+        const client = requireLineClient(getClient)
+        const decision = await resolveTextSendMode(client, to, {
+          allowPlaintextForOfficial: Boolean(text.allowPlaintextForOfficial),
+        })
+
+        if (decision.mode === 'plaintext-official') {
+          // v1: basic text only. Mentions and reply quotes are E2EE-shaped
+          // features; refuse rather than emit a half-formed plaintext message.
+          if (
+            text.contentMetadata &&
+            Object.keys(text.contentMetadata).length
+          ) {
+            throw new SendModeRefusedError(
+              `Refusing plaintext send to Official Account ${to}: mentions/contentMetadata are not supported in plaintext mode (v1 is basic text only).`,
+              { code: 'PLAINTEXT_UNSUPPORTED_FEATURE', mid: to },
+            )
+          }
+          if (text.relatedMessageId) {
+            throw new SendModeRefusedError(
+              `Refusing plaintext send to Official Account ${to}: reply quotes are not supported in plaintext mode (v1 is basic text only).`,
+              { code: 'PLAINTEXT_UNSUPPORTED_FEATURE', mid: to },
+            )
+          }
+          if (typeof text.text !== 'string' || text.text.length === 0) {
+            throw new SendModeRefusedError(
+              `Refusing plaintext send to Official Account ${to}: text is required.`,
+              { code: 'PLAINTEXT_UNSUPPORTED_FEATURE', mid: to },
+            )
+          }
+          // Ordinary text at Thrift field 10, contentType NONE, empty
+          // contentMetadata (the serializer omits an empty map), and no
+          // chunks (field 20 omitted). No e2eeVersion/e2eeMark markers.
+          const sent = await client.sendMessage({
+            to,
+            text: text.text,
+            contentType: CONTENT_TYPE.NONE,
+            contentMetadata: {},
+            chunks: null,
+            relatedMessageId: null,
+          })
+          return { ...(sent ?? {}), sendMode: decision.mode }
+        }
+
         const encrypted = await e2eeManager.encryptE2EEMessage(
           to,
           text.text,
           text.contentType ?? 0,
+          decision.peerPublicKey
+            ? { peerPublicKey: decision.peerPublicKey }
+            : {},
         )
-        return requireLineClient(getClient).sendMessage({
+        const sent = await client.sendMessage({
           to,
           text: null,
           contentType: encrypted.contentType,
@@ -221,6 +278,7 @@ export function createMessageCommandService(getClient, e2eeManager) {
           messageRelationType: text.messageRelationType ?? null,
           relatedMessageServiceCode: text.relatedMessageServiceCode ?? null,
         })
+        return { ...(sent ?? {}), sendMode: decision.mode }
       }
 
       // Plaintext path, extended to carry contentMetadata (e.g. mentions)

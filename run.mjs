@@ -164,11 +164,31 @@ switch (cmd) {
       return start < 0 ? [] : [{ mid, start, end: start + name.length + 1 }];
     });
     const metadata = mentions.length ? { MENTION: buildMentionMetadata(text, mentions) } : undefined;
-    const sent = await service.sendMessage(chatId, text, metadata);
+    // Opt-in to the Official Account plaintext policy (see README, "Official
+    // Account plaintext policy"). Default off: E2EE only.
+    const allowPlaintextForOfficial = process.env.YOMI_ALLOW_PLAINTEXT_FOR_OFFICIAL === '1';
+    const sent = await service.sendMessage(chatId, text, metadata, undefined, { allowPlaintextForOfficial });
     console.log(JSON.stringify({
       sent: true,
       messageId: sent?.id ?? sent?.messageId ?? null,
+      mode: sent?.sendMode ?? 'e2ee',
     }));
+    process.exit(0);
+  }
+  case 'probe-send-mode': {
+    // Dry run of the Official Account plaintext policy: verifies the contact
+    // and negotiates the peer key exactly as send-message would, then prints
+    // the decision. Sends NOTHING.
+    const mid = args[1];
+    if (!mid) {
+      console.error(JSON.stringify({ error: 'mid required' }));
+      process.exit(1);
+    }
+    const { LineProtocolService } = await load('line/core/service');
+    const service = new LineProtocolService();
+    if (!(await service.resumeSession())) process.exit(1);
+    const decision = await service.probeSendMode(mid);
+    console.log(JSON.stringify(decision));
     process.exit(0);
   }
   case 'send-image': {

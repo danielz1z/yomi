@@ -55,6 +55,25 @@ export function createE2EEClient(runtime) {
       )
       return result.fields?.[0] || null
     },
+    /**
+     * negotiateE2EEPublicKey, but returning the whole transport result
+     * instead of collapsing it to `fields[0] || null`. The collapsed form
+     * cannot tell a confirmed "this peer has no E2EE key" reply apart from
+     * a transport timeout or an empty HTTP body (both also come back as
+     * null). The Official Account plaintext policy in
+     * `core/send-mode.ts` needs that distinction, so it reads `error` and
+     * `fields` directly from here. A TalkException still throws (see
+     * LineClient.sendCompact), exactly like the plain method.
+     *
+     * @param mid - Target MID.
+     * @returns Raw transport result: `{ fields?, error? }`.
+     */
+    async negotiateE2EEPublicKeyRaw(mid) {
+      return runtime.sendTalk(
+        'negotiateE2EEPublicKey',
+        buildNegotiatePublicKeyRequest(mid),
+      )
+    },
     async getE2EEPublicKeysEx(mids) {
       const result = await runtime.sendTalk(
         'getE2EEPublicKeysEx',

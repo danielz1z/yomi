@@ -10,6 +10,7 @@ import type {
   ImportedKey,
   KeyManagerContext,
   KeyPair,
+  NegotiatedPublicKey,
 } from './key-types.js'
 import { toChunkKeyId } from './message-crypto.js'
 
@@ -257,14 +258,18 @@ export class KeyManager implements KeyManagerContext {
    * @param to - Target LINE MID
    * @param data - Text or structured payload to encrypt
    * @param contentType - LINE content type of the payload
+   * @param options - Optional pre-resolved material
+   * @param options.peerPublicKey - Peer key already negotiated by the
+   * caller; skips the network negotiation for a `u...` target.
    * @returns Message chunks plus metadata required by LINE
    */
   async encryptE2EEMessage(
     to: string,
     data: string | Record<string, any>,
     contentType = 0,
+    options: { peerPublicKey?: NegotiatedPublicKey } = {},
   ): Promise<EncryptedMessagePayload> {
-    return encryptE2EEMessageFn(this, to, data, contentType)
+    return encryptE2EEMessageFn(this, to, data, contentType, options)
   }
 
   /**

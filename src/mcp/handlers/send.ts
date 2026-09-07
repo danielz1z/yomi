@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { buildMentionMetadata, type Mention } from '../../line/core/mention.js'
+import { SendModeRefusedError } from '../../line/core/send-mode.js'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { createCliLogger } from '../../util/log.js'
 import { jsonText, toolError } from './shared.js'
@@ -14,6 +15,14 @@ const log = createCliLogger('Yomi')
  * no queueing, no background delivery. If the E2EE key material cannot be
  * resolved, the underlying encrypt call throws and this returns an honest
  * error — it never falls back to sending plaintext.
+ *
+ * The one deliberate exception is `allowPlaintextForOfficial: true`: an
+ * explicit per-call opt-in that lets a verified LINE Official Account with
+ * a confirmed-empty E2EE negotiation receive ordinary text. The decision is
+ * made before the send by `line/core/send-mode.ts`; a refusal there surfaces
+ * as an honest tool error with its policy code, and nothing is sent. Plain
+ * text mode is basic text only, so combining the opt-in with `mentions` or
+ * `replyToMessageId` is refused up front.
  *
  * `mentions`, when provided, are validated against `args.text` and encoded
  * into `contentMetadata.MENTION` (see `../line/core/mention.ts`) so LINE
@@ -33,10 +42,20 @@ export async function handleSendMessage(
     text: string
     mentions?: Mention[]
     replyToMessageId?: string
+    allowPlaintextForOfficial?: boolean
   },
 ) {
   if (!args.chatId || !args.text) {
     return toolError('chatId and text are required.')
+  }
+  const allowPlaintextForOfficial = args.allowPlaintextForOfficial === true
+  if (
+    allowPlaintextForOfficial &&
+    ((args.mentions && args.mentions.length > 0) || args.replyToMessageId)
+  ) {
+    return toolError(
+      'allowPlaintextForOfficial cannot be combined with mentions or replyToMessageId: plaintext mode is basic text only (v1).',
+    )
   }
   let contentMetadata: Record<string, string> | undefined
   if (args.mentions && args.mentions.length > 0) {
@@ -61,14 +80,28 @@ export async function handleSendMessage(
         relatedMessageServiceCode: 1,
       }
     : undefined
-  const sent = await service.sendMessage(
-    args.chatId,
-    args.text,
-    contentMetadata,
-    reply,
-  )
+  let sent: any
+  try {
+    sent = await service.sendMessage(
+      args.chatId,
+      args.text,
+      contentMetadata,
+      reply,
+      { allowPlaintextForOfficial },
+    )
+  } catch (error: any) {
+    if (error instanceof SendModeRefusedError) {
+      log.warn('send_message.refused', {
+        chatId: args.chatId,
+        code: error.data.code,
+      })
+      return toolError(`${error.message} [${error.data.code}]`)
+    }
+    throw error
+  }
   const messageId = sent?.id ?? sent?.messageId ?? null
-  log.info('send_message.sent', { chatId: args.chatId, messageId })
+  const mode = sent?.sendMode ?? 'e2ee'
+  log.info('send_message.sent', { chatId: args.chatId, messageId, mode })
   let read = false
   try {
     const r = await service.markChatRead(args.chatId)
@@ -83,7 +116,7 @@ export async function handleSendMessage(
     content: [
       {
         type: 'text' as const,
-        text: jsonText({ sent: true, messageId, read }),
+        text: jsonText({ sent: true, messageId, read, mode }),
       },
     ],
   }
