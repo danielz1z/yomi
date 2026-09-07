@@ -2,8 +2,10 @@
  * LINE core chat/runtime capability — Yomi read-only + explicit-send subset.
  *
  * Yomi is primarily a pure query server: it exposes message read/download
- * methods, plus one explicit, always-E2EE `sendMessage` write path used only
- * by the `send_message` MCP tool. Capabilities this module intentionally
+ * methods, plus one explicit `sendMessage` write path used only by the
+ * `send_message` MCP tool. That path is E2EE by default; its only non-E2EE
+ * form is the per-call Official Account opt-in governed by
+ * `./send-mode.ts`. Capabilities this module intentionally
  * does NOT carry over are: startPolling (continuous read-state mutation),
  * scanChats / fetchRecentMessages (bulk backfill scanning),
  * recoverE2EEContext, and createBackfillAdapter (pipeline-facing, depends
@@ -13,6 +15,7 @@
 
 import { createMessageCommandService } from './message-command-service.js'
 import { createMessageQueryService } from './message-query-service.js'
+import { resolveTextSendMode, SendModeRefusedError } from './send-mode.js'
 
 /**
  * Validate and normalize a human-facing LINE search id: a personal LINE ID
@@ -52,13 +55,20 @@ export function normalizeLineSearchId(userId: string): string {
 export function createChatRuntimeService(service: any) {
   return {
     /**
-     * Send one plain-text LINE message, always E2EE-encrypted through the
-     * explicit message-command boundary. There is no plaintext-send path:
-     * the caller-facing `send_message` tool only ever reaches this method,
-     * and this method only ever asks for `{ e2ee: true }`. If the E2EE key
-     * material cannot be resolved (peer negotiation or group key fetch
-     * fails), the underlying encrypt call throws and no request reaches
-     * LINE — never a silent plaintext fallback.
+     * Send one plain-text LINE message, E2EE-encrypted by default through
+     * the explicit message-command boundary. The caller-facing
+     * `send_message` tool only ever reaches this method, and this method
+     * always asks for `{ e2ee: true }`. If the E2EE key material cannot be
+     * resolved (peer negotiation or group key fetch fails), the underlying
+     * encrypt call throws and no request reaches LINE — never a silent
+     * plaintext fallback.
+     *
+     * The single exception is the explicit, per-call
+     * `options.allowPlaintextForOfficial` opt-in: for a verified LINE
+     * Official Account whose negotiation returns confirmed-empty, the
+     * message is sent as ordinary (non-Letter-Sealed) text. Everything
+     * else about the decision lives in `./send-mode.ts`; groups, rooms,
+     * ordinary users, and any ambiguous negotiation still fail closed.
      *
      * @param to - Recipient chat MID (1:1 `u...` or group/room `c.../r...`).
      * @param text - Plain-text message body.
@@ -66,7 +76,11 @@ export function createChatRuntimeService(service: any) {
      * alongside the E2EE markers — e.g. an outbound `MENTION` payload built
      * via `../mention.ts`. Never part of the encrypted chunks; see the
      * JSDoc on message-command-service.ts's `sendMessage` E2EE branch.
-     * @returns LINE sendMessage result (includes the sent message id).
+     * @param reply - Optional reply-quote relation fields.
+     * @param options - Per-call opt-ins.
+     * @param options.allowPlaintextForOfficial - Allow the OA plaintext path.
+     * @returns LINE sendMessage result (includes the sent message id and
+     * `sendMode`: `'e2ee'` or `'plaintext-official'`).
      */
     async sendMessage(
       to: string,
@@ -77,6 +91,7 @@ export function createChatRuntimeService(service: any) {
         messageRelationType: number
         relatedMessageServiceCode?: number
       },
+      options?: { allowPlaintextForOfficial?: boolean },
     ): Promise<any> {
       return createMessageCommandService(
         () => service.client,
@@ -88,7 +103,53 @@ export function createChatRuntimeService(service: any) {
         relatedMessageId: reply?.relatedMessageId ?? null,
         messageRelationType: reply?.messageRelationType ?? null,
         relatedMessageServiceCode: reply?.relatedMessageServiceCode ?? null,
+        allowPlaintextForOfficial: Boolean(options?.allowPlaintextForOfficial),
       })
+    },
+
+    /**
+     * Dry-run the Official Account plaintext policy for one recipient
+     * WITHOUT sending anything: runs the same contact verification and one
+     * negotiateE2EEPublicKey round-trip `sendMessage` would, and reports the
+     * decision. Read-only (getContacts + negotiate are the same calls the
+     * read path already makes). Returns the refusal as data instead of
+     * throwing so the probe can be logged as evidence.
+     *
+     * @param to - Recipient MID to evaluate.
+     * @returns The decision (mode, reason, isOfficial, negotiate
+     * classification) or the refusal (`refused: true`, code, message). The
+     * negotiated key bytes are never included; only the key id.
+     */
+    async probeSendMode(to: string): Promise<any> {
+      try {
+        const decision = await resolveTextSendMode(service.client, to, {
+          allowPlaintextForOfficial: true,
+        })
+        const negotiate =
+          decision.negotiate?.kind === 'key'
+            ? { kind: 'key', keyId: decision.negotiate.publicKey.keyId }
+            : decision.negotiate
+        return {
+          mid: to,
+          refused: false,
+          mode: decision.mode,
+          reason: decision.reason,
+          isOfficial: decision.isOfficial,
+          negotiate,
+        }
+      } catch (error: any) {
+        if (error instanceof SendModeRefusedError) {
+          return {
+            mid: to,
+            refused: true,
+            code: error.data.code,
+            isOfficial: error.data.isOfficial ?? null,
+            negotiate: error.data.negotiate ?? null,
+            message: error.message,
+          }
+        }
+        throw error
+      }
     },
 
     /**

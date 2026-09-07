@@ -104,7 +104,9 @@ export class LineProtocolService extends EventEmitter {
       messageRelationType: number
       relatedMessageServiceCode?: number
     },
+    options?: { allowPlaintextForOfficial?: boolean },
   ) => Promise<any>
+  public probeSendMode!: (to: string) => Promise<any>
   public sendImage!: (
     to: string,
     imageBytes: Buffer,
