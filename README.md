@@ -483,7 +483,7 @@ fake success.
 
 | Tool | Does |
 | --- | --- |
-| `send_message` | Sends an E2EE text message now (pairwise key for 1:1, group key for groups/rooms). Optional `mentions` attach real @-mentions that LINE highlights and notifies; omit them and a literal `@name` is just text that notifies no one. One send per call, no retries. |
+| `send_message` | Sends an E2EE text message now (pairwise key for 1:1, group key for groups/rooms). Optional `mentions` attach real @-mentions that LINE highlights and notifies; omit them and a literal `@name` is just text that notifies no one. One send per call, no retries. Optional `allowPlaintextForOfficial: true` permits ordinary (non-E2EE) text to a verified LINE Official Account that has no Letter Sealing key; see [Official Account plaintext policy](#official-account-plaintext-policy). |
 | `send_image` | Encrypts, uploads to LINE OBS, and sends an E2EE image now. Works for **1:1, groups, and rooms**. One send per call. Honest failure if the key can't be resolved or the upload is rejected. |
 | `mark_read` | Sends a read receipt the other party can see. Explicit only — reading messages and background capture never mark anything read. |
 
@@ -685,6 +685,71 @@ Yomi runs as a **secondary device** on your account. That shapes what it can see
 
 When decryption genuinely fails, Yomi returns an explicit `missing_decrypt_material`
 error — never a fake card or placeholder. Silence is honest; a fabricated result is not.
+
+---
+
+## Official Account plaintext policy
+
+LINE **Official Accounts** (OAs: shops, brands, bots) live outside Letter Sealing.
+Their chats ride on transport TLS only, so `negotiateE2EEPublicKey` for an OA comes
+back without a key. An OA's MID still starts with `u`, so Yomi's normal pairwise path
+negotiates, finds nothing, and refuses with
+`Failed to negotiate peer E2EE public key for u…`. Reading the chat works; sending does
+not. Official LINE clients handle exactly this case by negotiating first and then
+sending ordinary text when the peer does not support E2EE.
+
+Yomi does the same, but **only when you ask for it, per call**, and only when the
+evidence is unambiguous. The rules (implemented in `src/line/core/send-mode.ts`):
+
+1. **E2EE is the default for everyone.** Nothing changes unless `send_message` is
+   called with `allowPlaintextForOfficial: true` (CLI: `YOMI_ALLOW_PLAINTEXT_FOR_OFFICIAL=1`).
+2. **With the opt-in, plaintext requires BOTH:**
+   - the recipient contact is a **verified Official Account** (`isOfficial`, Contact
+     field 35 bit `0x20`, as LINE reports it via `getContacts`; never a MID heuristic), **and**
+   - `negotiateE2EEPublicKey` returned a **confirmed-empty** reply: a successful
+     REPLY whose `publicKey` member is absent or an empty struct.
+3. **A valid key always wins.** If negotiation returns a usable key, the message is
+   E2EE even with the opt-in. The negotiated key is handed straight to the encryptor,
+   so mode selection and encryption share one round-trip.
+4. **Everything ambiguous fails closed, and sends nothing:** groups and rooms,
+   ordinary users without a key, any TalkException (auth included), transport
+   timeouts, empty HTTP bodies, and key structs that are present but malformed.
+5. **The mode is chosen before the send, and there is exactly one send.** Yomi never
+   sends E2EE, sees an error, and then retries as plaintext.
+6. **v1 plaintext is basic text only.** No mentions, no reply quotes, no media. Those
+   still require E2EE and are refused up front in plaintext mode.
+
+On the wire a plaintext send is ordinary text in Thrift field 10 with `contentType`
+`NONE`; no E2EE chunks (field 20) and no `e2eeVersion` / `e2eeMark` markers are
+emitted. The tool result reports `mode: "plaintext-official"` (or `"e2ee"`) so the
+caller always knows which path was taken.
+
+### Dry run before you trust it
+
+`yomi probe-send-mode <mid>` runs the exact contact check and the one negotiation
+`send_message` would, prints the decision as JSON, and **sends nothing**:
+
+```bash
+node run.mjs probe-send-mode u0123456789abcdef0123456789abcdef
+# {"mid":"u…","refused":false,"mode":"plaintext-official","reason":"official_without_e2ee",
+#  "isOfficial":true,"negotiate":{"kind":"unsupported","reason":"no_public_key_field","detail":"…"}}
+```
+
+Suggested proof plan for a fork maintainer (no CI ever sends live LINE messages):
+
+- Probe **only** an OA you are fine talking to, e.g. your own test OA or one you already
+  chat with. **Never** probe or send to a customer-facing shop OA, and **never** send to
+  Testra EV Rental; the failing report came from there and a stray test message would
+  reach real staff.
+- Probe an **ordinary friend** too and confirm `refused: true, code: "PLAINTEXT_NOT_OFFICIAL"`.
+- If the OA probe reports `negotiate.kind: "error"` with a `talk_exception` detail,
+  LINE is answering OAs with an exception rather than an empty reply. That is **not**
+  auto-accepted; read the code in `detail`, and only if it is consistently the same
+  E2EE-specific code should it be added to `classifyNegotiateResult` as a second
+  confirmed-unsupported signal.
+- Only after the probe says `mode: "plaintext-official"` for your test OA, send a
+  single short `send_message` with `allowPlaintextForOfficial: true` and check the
+  result carries `mode: "plaintext-official"`.
 
 ---
 
