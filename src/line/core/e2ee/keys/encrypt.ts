@@ -6,7 +6,11 @@ import {
 } from '../crypto/crypto-primitives.js'
 import { getGroupKey } from './group-key.js'
 import { normalizeNegotiatedPublicKey } from './key-payload.js'
-import type { EncryptedMessagePayload, KeyManagerContext } from './key-types.js'
+import type {
+  EncryptedMessagePayload,
+  KeyManagerContext,
+  NegotiatedPublicKey,
+} from './key-types.js'
 import { generateAAD, getIntBytes } from './message-crypto.js'
 
 /**
@@ -64,6 +68,11 @@ function encryptE2EEMessageV2(
  * @param to - Target LINE MID
  * @param data - Text or structured payload to encrypt
  * @param contentType - LINE content type of the payload
+ * @param options - Optional pre-resolved material
+ * @param options.peerPublicKey - Peer key already negotiated by the caller
+ * (see `core/send-mode.ts`). When present for a `u...` target, the network
+ * negotiation is skipped so mode selection and encryption share one
+ * round-trip; ignored for groups/rooms.
  * @returns Message chunks plus metadata required by LINE
  */
 export async function encryptE2EEMessage(
@@ -71,6 +80,7 @@ export async function encryptE2EEMessage(
   to: string,
   data: string | Record<string, any>,
   contentType = 0,
+  options: { peerPublicKey?: NegotiatedPublicKey } = {},
 ): Promise<EncryptedMessagePayload> {
   const selfMid = ctx.getProfileMid()
   if (!selfMid) {
@@ -94,9 +104,11 @@ export async function encryptE2EEMessage(
   let sharedSecret: Buffer
 
   if (toType === 0) {
-    const publicKey = normalizeNegotiatedPublicKey(
-      await ctx.getClient()?.negotiateE2EEPublicKey?.(to),
-    )
+    const publicKey =
+      options.peerPublicKey ??
+      normalizeNegotiatedPublicKey(
+        await ctx.getClient()?.negotiateE2EEPublicKey?.(to),
+      )
     if (!publicKey) {
       throw new Error(`Failed to negotiate peer E2EE public key for ${to}`)
     }
