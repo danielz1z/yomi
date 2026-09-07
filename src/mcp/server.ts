@@ -305,6 +305,7 @@ async function main(): Promise<void> {
                 text: string
                 mentions?: Mention[]
                 replyToMessageId?: string
+                allowPlaintextForOfficial?: boolean
               },
             )
           case 'send_image':

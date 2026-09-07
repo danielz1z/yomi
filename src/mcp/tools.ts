@@ -202,7 +202,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      'Sends a text message to a LINE conversation immediately (not a draft). Always E2EE (pairwise for 1:1, group key for group/room); fails honestly rather than sending plaintext if the key cannot be resolved. One send per call. To @mention someone, put the visible "@name " into `text` AND pass a matching `mentions` entry — without `mentions`, "@name" is plain text and notifies no one. Resolve MIDs via get_group_members or find_contact first.',
+      'Sends a text message to a LINE conversation immediately (not a draft). E2EE by default (pairwise for 1:1, group key for group/room); fails honestly rather than sending plaintext if the key cannot be resolved. One send per call. To @mention someone, put the visible "@name " into `text` AND pass a matching `mentions` entry — without `mentions`, "@name" is plain text and notifies no one. Resolve MIDs via get_group_members or find_contact first. LINE Official Accounts (bots, shops) do not support Letter Sealing, so sending to one fails with "Failed to negotiate peer E2EE public key"; for those ONLY, pass `allowPlaintextForOfficial: true` to permit ordinary (TLS-only, not E2EE) text. The result reports `mode` ("e2ee" or "plaintext-official").',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -246,6 +246,11 @@ export const TOOLS: Tool[] = [
           type: 'string',
           description:
             'Optional message id (from get_chat_messages) this replies to — LINE renders a quoted reply. Omit for a normal message.',
+        },
+        allowPlaintextForOfficial: {
+          type: 'boolean',
+          description:
+            'Opt-in, per call, default false. Permits a NON-E2EE text send ONLY when the recipient is a verified LINE Official Account (contact isOfficial) AND its E2EE key negotiation comes back confirmed-empty. If a valid key exists the message is still E2EE. Ordinary users, groups, rooms, auth errors, timeouts, and malformed replies still fail without sending. Plaintext mode is basic text only: no mentions, no replyToMessageId.',
         },
       },
       required: ['chatId', 'text'],
