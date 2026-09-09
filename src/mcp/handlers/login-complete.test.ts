@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { beforeEach, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { handleLoginComplete } from './login.js'
@@ -6,8 +6,16 @@ import {
   awaitPendingLogin,
   getLivePendingLogin,
   getPendingLogin,
+  resetPendingLoginForTests,
   startPendingLogin,
 } from './login-session.js'
+
+// One shared module registry per `bun test` process: without this, the
+// settled login a case leaves behind is what the next case (or the next
+// FILE, in whatever order this OS runs them) reads.
+beforeEach(() => {
+  resetPendingLoginForTests()
+})
 
 /**
  * A LineProtocolService stand-in for the passwordless two-call path: a real

@@ -109,6 +109,15 @@ export function getPendingQrLogin(): PendingQrLogin | null {
 }
 
 /**
+ * Forget the tracked QR login. Test isolation only — see
+ * ./login-session.ts's resetPendingLoginForTests for why `bun test` needs
+ * it. Production never calls it.
+ */
+export function resetPendingQrLoginForTests(): void {
+  pendingQrLogin = null
+}
+
+/**
  * Whether an attempt can still succeed as far as LINE is concerned. The
  * ~3-minute window restarts when the PIN is issued (the PIN has its own
  * lifetime), and once the phone has done its part there is no human deadline

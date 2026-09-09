@@ -1,6 +1,13 @@
-import { expect, test } from 'bun:test'
+import { beforeEach, expect, test } from 'bun:test'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { handleLoginMrtr } from './login-mrtr.js'
+import { resetPendingLoginForTests } from './login-session.js'
+
+// One shared module registry per `bun test` process: the "no login in
+// flight" case below must not see a login another file settled first.
+beforeEach(() => {
+  resetPendingLoginForTests()
+})
 
 /**
  * A service that can answer credential lookups and nothing else. Every case

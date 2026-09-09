@@ -1,8 +1,20 @@
-import { expect, test } from 'bun:test'
+import { beforeEach, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
 import type { LineProtocolService } from '../../line/core/service.js'
 import { handleLoginQr, handleLoginQrStatus } from './login-qr.js'
-import { getPendingQrLogin } from './login-qr-session.js'
+import {
+  getPendingQrLogin,
+  resetPendingQrLoginForTests,
+} from './login-qr-session.js'
+import { resetPendingLoginForTests } from './login-session.js'
+
+// One shared module registry per `bun test` process: every case here starts
+// from no attempt at all, whatever another case or file left behind.
+// (`login_qr` also refuses to start while a passwordless login is live.)
+beforeEach(() => {
+  resetPendingQrLoginForTests()
+  resetPendingLoginForTests()
+})
 
 /**
  * A LineProtocolService stand-in for the QR handler tests: a real

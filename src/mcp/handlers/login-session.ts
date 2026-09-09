@@ -82,6 +82,17 @@ export function getPendingLogin(): PendingLogin | null {
 }
 
 /**
+ * Forget the tracked login. Test isolation only: `bun test` runs every file
+ * in one process with a shared module registry, and file order differs by
+ * OS, so without this one file's settled login leaks into another's "nothing
+ * pending" assertions. Production never calls it — a new attempt replaces
+ * the record, and a settled one is meant to stay readable.
+ */
+export function resetPendingLoginForTests(): void {
+  pendingLogin = null
+}
+
+/**
  * The in-flight login only if it is still worth reusing: unsettled and
  * started within LINE's PIN lifetime.
  *
