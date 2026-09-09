@@ -47,7 +47,7 @@ import {
   handleLogin,
   handleLoginComplete,
   handleLoginQr,
-  handleLoginQrComplete,
+  handleLoginQrStatus,
   handleMarkRead,
   handlePreviewSticker,
   handleReactMessage,
@@ -202,7 +202,7 @@ async function main(): Promise<void> {
         name === 'login' ||
         name === 'login_complete' ||
         name === 'login_qr' ||
-        name === 'login_qr_complete' ||
+        name === 'login_qr_status' ||
         name === 'search_messages' ||
         name === 'exclude_chats' ||
         name === 'include_chats' ||
@@ -245,8 +245,8 @@ async function main(): Promise<void> {
             return await handleLoginComplete()
           case 'login_qr':
             return await handleLoginQr(service)
-          case 'login_qr_complete':
-            return await handleLoginQrComplete()
+          case 'login_qr_status':
+            return handleLoginQrStatus()
           case 'list_conversations':
             return await handleListConversations(
               service,
