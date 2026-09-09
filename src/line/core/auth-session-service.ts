@@ -4,6 +4,7 @@
 
 import { performPwlessLogin, performQrLogin } from '../auth/protocol/index.js'
 import { performLogout } from './auth-session-logout.js'
+import { revokeSession } from './auth-session-revoke.js'
 import {
   resumeSession as resumeSessionImpl,
   tryRefreshToken as tryRefreshTokenImpl,
@@ -67,36 +68,14 @@ export function createAuthSessionService(
     /**
      * Mark the active session as invalid after LINE rejects a previously saved token.
      *
+     * Same cleanup as the resume and poll-loop revoke paths (see
+     * auth-session-revoke.ts): polling stops, the dead login leaves the
+     * credential store, phone/region stay for the next `login`.
+     *
      * @param reason - Operator/debug reason for invalidation.
      */
     async invalidateSession(reason = 'line_auth_invalidated'): Promise<void> {
-      try {
-        service.client?.stopPolling?.()
-      } catch {
-        // Polling may already be stopped.
-      }
-
-      const savedPhone = await service.credentialStore?.get?.('line_phone')
-      const savedRegion = await service.credentialStore?.get?.('line_region')
-      await service.sessionState.clearAuth()
-      if (savedPhone) {
-        await service.credentialStore?.set?.('line_phone', savedPhone)
-      }
-      if (savedRegion) {
-        await service.credentialStore?.set?.('line_region', savedRegion)
-      }
-
-      service.client = null
-      service.profile = null
-      service.e2eeWarning = false
-      service.loginRequired = true
-      // Only reached when LINE rejects a token it previously accepted, which
-      // is a revocation regardless of the operator-supplied debug reason.
-      service.loginReason = 'revoked'
-      service.nameCache.clear()
-      service.chatCache.clear()
-      service.setState(states.DISCONNECTED)
-      service.emit('line:loginRequired', { reason })
+      await revokeSession(service, states.DISCONNECTED, { reason })
       service.emit('error', new Error(reason))
     },
 

@@ -15,6 +15,25 @@ import {
 } from './persist.js'
 
 /**
+ * Credential keys written by one login and owned by it. See clearAuth for
+ * why each is here and what is deliberately absent.
+ */
+export const CLEARED_LOGIN_KEYS = [
+  'line_auth_token',
+  'line_refresh_token',
+  'line_token_issue_time_epoch_sec',
+  'line_token_duration_until_refresh_sec',
+  'line_revision',
+  'line_global_revision',
+  'line_individual_revision',
+  'line_certificate',
+  'line_e2ee_bootstrap',
+  'line_nacl_secret_key',
+  'line_nacl_public_key',
+  'line_nonce',
+] as const
+
+/**
  * Own persisted and in-memory LINE session state.
  */
 export class LineSessionState {
@@ -286,12 +305,22 @@ export class LineSessionState {
   }
 
   /**
-   * Clear auth credentials for the current LINE session.
+   * Clear everything the current LINE login handed this device.
    *
-   * This intentionally preserves non-auth LINE state such as saved phone,
-   * E2EE key material, peer/group key caches, and recent-fetch checkpoints.
-   * Those fields may belong to a freshly logged-in sibling process or be useful
-   * for in-session E2EE recovery after a token failure.
+   * That is the auth/refresh tokens and their lifetimes, the sync revisions,
+   * the secondary-device login certificate, and the login-time E2EE bootstrap
+   * (encrypted keychain + the temporal NaCl keypair it was sealed to). All of
+   * it was issued by the session being cleared; once LINE has signed this
+   * device out, a later QR/PIN login that finds any of it on disk is worse
+   * off than one that finds nothing — a revoked certificate offered to
+   * verifyCertificate poisons the QR context and the final
+   * qrCodeLoginV2ForSecure fails with INVALID_CONTEXT.
+   *
+   * Deliberately kept: saved phone/region (login helpers, not auth), the
+   * decrypted E2EE self keys (`line_e2ee_keys` — they belong to the account,
+   * not the login, so already-captured history stays readable and the next
+   * login overwrites them anyway), peer/group key caches, `line_mid`, and the
+   * recent-fetch checkpoints.
    *
    * @returns Promise that resolves when credentials are removed
    */
@@ -304,12 +333,8 @@ export class LineSessionState {
     this.revision = -1
     this.globalRevision = 0
     this.individualRevision = 0
-    await this.credentialStore.delete('line_auth_token')
-    await this.credentialStore.delete('line_refresh_token')
-    await this.credentialStore.delete('line_token_issue_time_epoch_sec')
-    await this.credentialStore.delete('line_token_duration_until_refresh_sec')
-    await this.credentialStore.delete('line_revision')
-    await this.credentialStore.delete('line_global_revision')
-    await this.credentialStore.delete('line_individual_revision')
+    for (const key of CLEARED_LOGIN_KEYS) {
+      await this.credentialStore.delete(key)
+    }
   }
 }
