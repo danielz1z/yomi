@@ -3,10 +3,11 @@
  */
 
 import { createCliLogger } from '../../util/log.js'
+import { isLineAuthInvalidatedError } from '../client/index.js'
+import { revokeSession } from './auth-session-revoke.js'
 import { recoverBootstrapKeys } from './e2ee/recovery/bootstrap-keys.js'
 import { STATE } from './service.js'
 
-const TERMINAL_ERROR_REGEX = /LOGGED_OUT|DIVESTED/i
 const AUTH_ERROR_REGEX = /expired|unauthorized|authentication|invalid.*token/i
 
 /**
@@ -135,20 +136,21 @@ async function handleSessionValidationError(
 ): Promise<boolean> {
   const msg = validationErr?.message || ''
   lineLog.warn('session.restore.validation_failed', { error: msg })
-  if (TERMINAL_ERROR_REGEX.test(msg)) {
-    // Never destroy credentials on a transient/error-path signal — a
-    // regex misfire or one bad response would otherwise cost the operator
-    // a phone-PIN re-login for nothing. The stale token stays on disk;
-    // a later successful login overwrites it via persistLoginCredentials.
-    // clearAuth() remains reserved for the explicit, user-initiated
-    // invalidateSession() path (see auth-session-service.ts).
+  if (isLineAuthInvalidatedError(validationErr)) {
+    // LINE named this device as logged out (V3_TOKEN_CLIENT_LOGGED_OUT /
+    // LOGGED_OUT / DIVESTED). That is not a transient signal: the token,
+    // refresh token and login certificate are dead, and a certificate left
+    // on disk poisons the next QR login (INVALID_CONTEXT at
+    // qrCodeLoginV2ForSecure). Clear them now. The transient/regex-misfire
+    // caution still applies to the AUTH_ERROR and network branches below,
+    // which never touch the store.
     lineLog.warn('session.restore.revoked', {
-      action: 'require_relogin_without_clearing_credentials',
+      action: 'clear_revoked_credentials_and_require_relogin',
     })
-    service.loginRequired = true
-    service.loginReason = 'revoked'
-    service.setState(STATE.DISCONNECTED)
-    service.emit('line:loginRequired')
+    await revokeSession(service, STATE.DISCONNECTED, {
+      reason: 'session_restore_revoked',
+      log: lineLog,
+    })
     return false
   }
 
@@ -254,9 +256,18 @@ export async function resumeSession(service: any): Promise<boolean> {
     // `runtime.emit('error', ...)` in the poll loop) — a zero-listener 'error'
     // emit there throws uncaught and kills the process just like on `service`
     // itself. Attach here, at construction, for the client's lifetime.
-    service.client.on('error', (error: any) =>
-      lineLog.warn('client.error', { error: error?.message ?? String(error) }),
-    )
+    service.client.on('error', (error: any) => {
+      lineLog.warn('client.error', { error: error?.message ?? String(error) })
+      // The poll loop retries every failure after a 3s sleep. A revoked token
+      // never recovers, so without this the process would keep knocking on
+      // LINE with a dead token until the next tool call happened to notice.
+      if (isLineAuthInvalidatedError(error) && !service.loginRequired) {
+        void revokeSession(service, STATE.DISCONNECTED, {
+          reason: 'poll_auth_invalidated',
+          log: lineLog,
+        })
+      }
+    })
     service.sessionState.bindClient(service.client)
     await restoreE2EEState(service, lineLog)
     return validateRestoredSession(service, lineLog)
