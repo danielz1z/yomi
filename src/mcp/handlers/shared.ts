@@ -18,13 +18,15 @@ export const NO_CREDENTIALS_MESSAGE =
 // Shown when LINE invalidated a previously working session — distinct from
 // "never logged in" so the model tells the user the right story: the MCP
 // connection is healthy, LINE revoked this device's token (usually because
-// the same account logged in somewhere else).
+// the same account logged in somewhere else). The revoked token and login
+// certificate are cleared on purpose (a revoked certificate poisons the next
+// QR login), so unlike the expired case this re-login WILL ask for a PIN.
 const SESSION_REVOKED_MESSAGE =
   'LINE signed this device out — usually because the same account logged in ' +
   'somewhere else (another device, or a terminal `login` run). The MCP ' +
-  'connection itself is fine. Call the `login` tool to reconnect (or ' +
-  '`login_qr` if the account has no phone number); cached ' +
-  'credentials usually complete without a new PIN.'
+  'connection itself is fine. Yomi discarded the revoked session, so call the ' +
+  '`login` tool to reconnect (or `login_qr` if the account has no phone ' +
+  'number) and expect a fresh PIN or QR scan on the phone.'
 
 /**
  * Build the always-fresh session-required error payload.

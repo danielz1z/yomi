@@ -11,7 +11,6 @@ import {
   Server,
 } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
-import { isLineAuthInvalidatedError } from '../line/client/index.js'
 import type { Mention } from '../line/core/mention.js'
 import { LineProtocolService } from '../line/core/service.js'
 import { startCapture } from '../search/capture.js'
@@ -63,6 +62,7 @@ import {
   handleSendMessage,
   handleSendSticker,
   handleSendVideo,
+  handleToolAuthInvalidated,
   handleUnblockContact,
   handleUnsendMessage,
   NO_CREDENTIALS_MESSAGE,
@@ -510,15 +510,18 @@ async function main(): Promise<void> {
         }
       } catch (error: any) {
         const message = error?.message ?? String(error)
-        // A mid-session LINE token invalidation (e.g. V3_TOKEN_CLIENT_LOGGED_OUT
-        // after a competing login) is not a tool bug — flag the service so
-        // subsequent calls short-circuit at the gate above, and translate the
-        // raw protocol error into an actionable re-login message.
-        if (isLineAuthInvalidatedError(error)) {
-          service.loginRequired = true
-          service.loginReason = 'revoked'
-          log.warn('tool.session_revoked', { error: message, tool: name })
-          return sessionRevokedError(message)
+        // A mid-session LINE token invalidation is not a tool bug: tear the
+        // dead session down (stop polling, clear the revoked credentials) so
+        // later calls short-circuit at the gate above and the next login
+        // starts clean, and answer with an actionable re-login message.
+        const revoked = await handleToolAuthInvalidated(
+          service,
+          error,
+          name,
+          log,
+        )
+        if (revoked) {
+          return revoked
         }
         log.error('tool.failed', { error: message, tool: name })
         return toolError(message)
