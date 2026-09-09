@@ -4,7 +4,7 @@
  * `runQrLogin` is the ONE QR login sequence: subscribe to
  * `qrCreated`/`pinCreated`, drive `service.startQrLogin`, unsubscribe in a
  * `finally`. Every front-end calls it — the MCP `login_qr`/
- * `login_qr_complete` tools (see ../mcp/handlers/login-qr.ts) and
+ * `login_qr_status` tools (see ../mcp/handlers/login-qr.ts) and
  * `cliLoginQr` below (surfaces the QR and PIN on stdout, for the
  * `npx @rikaidev/yomi login-qr` path that needs no MCP client at all).
  * No front-end duplicates the sequence itself.
@@ -32,6 +32,10 @@ export interface QrLoginHooks {
   onPin?: (pin: string) => void
   /** Called once the phone has confirmed the scan. */
   onScanVerified?: () => void
+  /** Called when LINE accepted the stored certificate — no PIN this time. */
+  onCertificateVerified?: () => void
+  /** Called once LINE accepted the PIN the human typed on the phone. */
+  onPinVerified?: () => void
 }
 
 /**
@@ -51,9 +55,13 @@ export async function runQrLogin(
 ): Promise<QrLoginResult> {
   const onPin = (pin: string) => hooks.onPin?.(pin)
   const onScanVerified = () => hooks.onScanVerified?.()
+  const onCertificateVerified = () => hooks.onCertificateVerified?.()
+  const onPinVerified = () => hooks.onPinVerified?.()
   service.on('qrCreated', hooks.onQr)
   service.on('pinCreated', onPin)
   service.on('scanVerified', onScanVerified)
+  service.on('certificateVerified', onCertificateVerified)
+  service.on('pinVerified', onPinVerified)
   try {
     await service.startQrLogin()
     const profile = service.profile ?? null
@@ -65,6 +73,8 @@ export async function runQrLogin(
     service.off('qrCreated', hooks.onQr)
     service.off('pinCreated', onPin)
     service.off('scanVerified', onScanVerified)
+    service.off('certificateVerified', onCertificateVerified)
+    service.off('pinVerified', onPinVerified)
   }
 }
 

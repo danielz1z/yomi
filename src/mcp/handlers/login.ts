@@ -24,8 +24,10 @@
  *     it is produced mid-flow and stderr is invisible to the human, but a
  *     tool RESULT is visible. So the flow is split across two tool calls:
  *     `login` starts the passwordless flow and returns the PIN as soon as
- *     LINE issues it (bounded wait), then `login_complete` awaits the same
- *     in-flight login to finish once the human has acted on their phone.
+ *     LINE issues it (bounded wait), then `login_complete` reads the same
+ *     in-flight login — also bounded, reporting "still waiting" rather than
+ *     holding the call open for the human, because MCP hosts cancel long
+ *     tool calls (see ./login-session.ts).
  */
 import type {
   ClientCapabilities,
@@ -54,11 +56,12 @@ import {
   readPreflightForm,
 } from './login-copy.js'
 import { handleLoginMrtr } from './login-mrtr.js'
-import { getPendingQrLogin } from './login-qr-session.js'
+import { getLivePendingQrLogin } from './login-qr-session.js'
 import {
-  finishPendingLogin,
+  awaitPendingLogin,
   getLivePendingLogin,
   getPendingLogin,
+  LOGIN_COMPLETE_WAIT_MS,
   PIN_WAIT_TIMEOUT_MS,
   startPendingLogin,
   waitForPin,
@@ -263,12 +266,12 @@ async function handleLoginNoElicitation(
     )
   }
 
-  if (getPendingQrLogin()) {
+  if (getLivePendingQrLogin(Date.now())) {
     // A QR login is still in flight. Two concurrent logins would fight over
     // the same service state — finish or abandon that one first.
     return toolError(
-      'A QR login started with `login_qr` is still in progress. Call `login_qr_complete` ' +
-        'to finish it (or wait for its code to expire) before starting a phone-number login.',
+      'A QR login started with `login_qr` is still in progress. Poll `login_qr_status` ' +
+        'until it settles (or wait for its code to expire) before starting a phone-number login.',
     )
   }
 
@@ -301,10 +304,11 @@ async function handleLoginNoElicitation(
       }
       const certText =
         certSteps() +
-        'Call the `login_complete` tool (no arguments) IMMEDIATELY now — do not wait for ' +
-        'confirmation that the approval happened first. `login_complete` blocks by itself while ' +
-        `you approve (up to about ${Math.round(APPROVAL_WINDOW_MS / 60000)} minutes) and returns ` +
-        'your profile once it succeeds.'
+        'Call the `login_complete` tool (no arguments) now — do not wait for confirmation that the ' +
+        `approval happened first. It checks for up to ${Math.round(LOGIN_COMPLETE_WAIT_MS / 1000)} ` +
+        'seconds per call and says "still in progress" while the phone has not confirmed — keep ' +
+        'calling it until it returns your profile. Yomi keeps the attempt alive for up to about ' +
+        `${Math.round(APPROVAL_WINDOW_MS / 60000)} minutes.`
       return {
         content: [{ type: 'text' as const, text: certText }],
         structuredContent: certStructuredContent,
@@ -335,12 +339,13 @@ async function handleLoginNoElicitation(
   }
   const pinText =
     pinSteps(pin) +
-    `Call the \`login_complete\` tool (no arguments) IMMEDIATELY now — do not wait until you have ` +
-    'entered the PIN or approved the device. `login_complete` blocks by itself through both of ' +
-    `those steps: it keeps waiting up to about ${clientPinPollCeilingMinutes} minutes for step 2 and ` +
-    `up to about ${clientApprovalPollCeilingMinutes} more minutes for step 3, well beyond LINE's own ` +
-    `${pinCodeLifetimeSeconds}-second code deadline, so a slow phone is never the failure — missing ` +
-    'that 3-minute deadline is what actually kills the code.\n\n' +
+    'Show the human this PIN, then call the `login_complete` tool (no arguments) — do not wait until ' +
+    `they have entered the PIN or approved the device. It checks for up to ${Math.round(LOGIN_COMPLETE_WAIT_MS / 1000)} ` +
+    'seconds per call and says "still in progress" while the phone has not confirmed — keep calling ' +
+    "it until it returns the profile. Yomi keeps the attempt alive well beyond LINE's own " +
+    `${pinCodeLifetimeSeconds}-second code deadline (about ${clientPinPollCeilingMinutes} minutes for ` +
+    `step 2, about ${clientApprovalPollCeilingMinutes} more for step 3), so a slow phone is never the ` +
+    'failure — missing that 3-minute deadline is what actually kills the code.\n\n' +
     '(This PIN step is skipped on future logins once a login certificate has been stored.)'
   return {
     content: [{ type: 'text' as const, text: pinText }],
@@ -391,11 +396,15 @@ export async function handleLogin(
 
 /**
  * Handle `login_complete` — finish a login started by a prior `login` call
- * on a client with no elicitation. Awaits the same in-flight
- * `runPwlessLogin` promise `login` started, so the real success/failure
- * surfaces here.
+ * on a client with no elicitation. Waits on the same in-flight
+ * `runPwlessLogin` promise `login` started, but only for a bounded slice
+ * (LOGIN_COMPLETE_WAIT_MS): a login the human is still working on is
+ * reported as "still waiting — call again", never held open until the host
+ * cancels the call. A settled outcome stays readable on later calls, so a
+ * result the client never received is not lost.
  *
- * @returns MCP tool result describing the logged-in profile, or an honest error.
+ * @returns MCP tool result describing the logged-in profile, a still-waiting
+ * notice, or an honest error.
  */
 export async function handleLoginComplete() {
   const pending = getPendingLogin()
@@ -407,17 +416,32 @@ export async function handleLoginComplete() {
         '(about 3 minutes) to act on a shown code. Calling `login` again is safe.)',
     )
   }
-  try {
-    const { mid, displayName } = await finishPendingLogin(pending)
+  const outcome = await awaitPendingLogin(pending, LOGIN_COMPLETE_WAIT_MS)
+  if (outcome.kind === 'waiting') {
     return {
       content: [
         {
           type: 'text' as const,
-          text: jsonText({ loggedIn: true, mid, displayName }),
+          text:
+            'Login still in progress — LINE is waiting for the phone (PIN entry and/or approval of ' +
+            'this device). Nothing is lost. Call `login_complete` again; it checks for up to ' +
+            `${Math.round(LOGIN_COMPLETE_WAIT_MS / 1000)} seconds per call and returns the profile ` +
+            'once the phone has confirmed. Keep calling until it does or reports an error.',
         },
       ],
     }
-  } catch (error: any) {
+  }
+  if (outcome.kind === 'failed') {
+    const error: any = outcome.error
     return toolError(error?.message ?? String(error))
+  }
+  const { mid, displayName } = outcome.result
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: jsonText({ loggedIn: true, mid, displayName }),
+      },
+    ],
   }
 }

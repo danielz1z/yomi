@@ -15,7 +15,7 @@ import { PRIMARY_DEVICE_SETTING_PATH } from './handlers/login-copy.js'
 
 export const TOOLS: Tool[] = [
   {
-    description: `Log in to LINE via the passwordless secondary-device flow. Requires ${PRIMARY_DEVICE_SETTING_PATH} enabled on the primary phone — with it off LINE never prompts that phone and NO login can succeed, so raise this with the human up front rather than after a failure. On MCP clients with form elicitation, this call first confirms that setting, then prompts for phone/region and PIN and completes login by itself; if the human says the setting is off, it returns the enabling steps without starting a login (relay them verbatim, then call \`login\` again). On clients without it (e.g. Claude Desktop), phone/region come from the arguments or a persisted login, and this returns as soon as LINE issues the PIN (or reports none needed) — then call login_complete IMMEDIATELY (do not wait for the human). LINE gives ~3 minutes from PIN display to confirm on the phone; login_complete blocks past that, so calling it late only wastes that window.`,
+    description: `Log in to LINE via the passwordless secondary-device flow. Requires ${PRIMARY_DEVICE_SETTING_PATH} enabled on the primary phone — with it off LINE never prompts that phone and NO login can succeed, so raise this with the human up front rather than after a failure. On MCP clients with form elicitation, this call first confirms that setting, then prompts for phone/region and PIN and completes login by itself; if the human says the setting is off, it returns the enabling steps without starting a login (relay them verbatim, then call \`login\` again). On clients without it (e.g. Claude Desktop), phone/region come from the arguments or a persisted login, and this returns as soon as LINE issues the PIN (or reports none needed) — show it, then call login_complete repeatedly until it returns the profile (do not wait for the human between calls). LINE gives ~3 minutes from PIN display to confirm on the phone.`,
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -35,7 +35,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      "Finish a passwordless login that `login` started on a client without form elicitation (not needed on form-elicitation-capable clients). No arguments. Call immediately after `login` returns — do not wait for the human. Blocks while they enter the PIN (skipped if a stored certificate is valid) and approve the device, then returns the profile. LINE's real deadline is ~3 minutes from PIN display. Errors if no login is pending.",
+      "Finish a passwordless login that `login` started on a client without form elicitation (not needed on form-elicitation-capable clients). No arguments. Call right after `login` returns and keep calling: each call checks for up to ~20s and reports 'still in progress' while the human is entering the PIN (skipped if a stored certificate is valid) or approving the device, then returns the profile. Never holds a call open for the human. A finished outcome stays readable on later calls. LINE's real deadline is ~3 minutes from PIN display. Errors if no login is pending.",
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -44,7 +44,7 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      'Log in to LINE by QR code (ForSecure secondary-device flow) — the path for accounts with NO phone number (e.g. created via Apple): the account is identified by whichever primary phone scans the code, exactly like official LINE for Chrome. No arguments. Starts the flow and returns as soon as LINE issues the QR payload, as a scannable PNG plus the raw URL. The same prerequisite as `login` applies: the primary phone must allow login from other devices or LINE never confirms the scan. Call login_qr_complete IMMEDIATELY after this returns — do not wait for the human. LINE gives ~3 minutes from code display to confirm; login_qr_complete blocks past that, so calling it late only wastes that window.',
+      'Log in to LINE by QR code (ForSecure secondary-device flow) — the path for accounts with NO phone number (e.g. created via Apple): the account is identified by whichever primary phone scans the code, exactly like official LINE for Chrome. No arguments. Starts the flow and returns as soon as LINE issues the QR payload (bounded ~20s wait), as a scannable PNG plus the raw URL. The same prerequisite as `login` applies: the primary phone must allow login from other devices or LINE never confirms the scan. Show the QR to the human, then poll login_qr_status every few seconds — no tool call waits for the human. LINE gives ~3 minutes from code display to scan and confirm. Calling this again reuses the in-flight attempt (no second code); once the phone has scanned it reports status instead.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -53,12 +53,12 @@ export const TOOLS: Tool[] = [
   },
   {
     description:
-      'Finish a QR login that `login_qr` started. No arguments. Call immediately after `login_qr` returns — do not wait for the human to scan. Blocks while they scan and approve on the phone. If LINE asks for a PIN this returns EARLY carrying it (the human cannot type a PIN they have not seen): show it verbatim and call login_qr_complete again. Returns the profile once login completes. Errors if no QR login is pending.',
+      'Where the QR login started by `login_qr` is right now. No arguments; returns IMMEDIATELY, never waits for the human, safe to poll every few seconds. structuredContent.status is one of: none, waiting_for_qr, waiting_for_scan (qrUrl, secondsLeft), scan_confirmed, pin (pin digits, secondsLeft — show the digits to the human verbatim; they must type them on the phone within ~3 minutes), finishing, logged_in (mid, displayName), failed (message). The PIN is repeated on every poll until LINE accepts it, so a lost result costs nothing. Poll until logged_in or failed; on failed call login_qr again.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
     },
-    name: 'login_qr_complete',
+    name: 'login_qr_status',
   },
   {
     description:

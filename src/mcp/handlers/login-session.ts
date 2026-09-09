@@ -35,7 +35,16 @@ const PIN_WINDOW_MS = LINE_PIN_CODE_LIFETIME_MS
 /** How long a `login` call waits for LINE to issue a PIN before giving up. */
 export const PIN_WAIT_TIMEOUT_MS = 20000
 
-/** At most one in-flight passwordless login at a time. */
+/**
+ * How long one `login_complete` call stays open before reporting "still
+ * waiting" instead. The human side (typing the PIN, approving the device)
+ * takes minutes, and MCP hosts cancel tool calls held open that long
+ * (`-32001: Request timed out`) — so no single call may wait for the human.
+ * Same 20s budget as the PIN wait, which is known to survive on those hosts.
+ */
+export const LOGIN_COMPLETE_WAIT_MS = 20000
+
+/** At most one passwordless login is tracked at a time. */
 export interface PendingLogin {
   /** The runPwlessLogin promise itself — always awaitable, guarded separately against unhandled rejection. */
   promise: Promise<PwlessLoginResult>
@@ -52,24 +61,46 @@ export interface PendingLogin {
   startedAt: number
   /** Resolves the instant `pin` is set OR `certSkippedPin` becomes true, so a later call can wait on either outcome. */
   pinReady: Promise<void>
+  /**
+   * True once the flow settled (success or failure). The record is kept —
+   * with `result`/`error` — so a `login_complete` whose earlier result the
+   * client never received can still read the outcome. A settled record is
+   * never reused by `login`.
+   */
+  settled: boolean
+  /** The profile once the flow succeeded; null otherwise. */
+  result: PwlessLoginResult | null
+  /** The failure once the flow failed; undefined otherwise. */
+  error: unknown
 }
 
 let pendingLogin: PendingLogin | null = null
 
-/** @returns The in-flight login, or null when none is pending. */
+/** @returns The tracked login (live or settled), or null when none was ever started. */
 export function getPendingLogin(): PendingLogin | null {
   return pendingLogin
 }
 
 /**
- * The in-flight login only if it is still worth reusing: started within
- * LINE's PIN lifetime.
+ * Forget the tracked login. Test isolation only: `bun test` runs every file
+ * in one process with a shared module registry, and file order differs by
+ * OS, so without this one file's settled login leaks into another's "nothing
+ * pending" assertions. Production never calls it — a new attempt replaces
+ * the record, and a settled one is meant to stay readable.
+ */
+export function resetPendingLoginForTests(): void {
+  pendingLogin = null
+}
+
+/**
+ * The in-flight login only if it is still worth reusing: unsettled and
+ * started within LINE's PIN lifetime.
  *
  * @param now - Current epoch millis.
  * @returns The live pending login, or null.
  */
 export function getLivePendingLogin(now: number): PendingLogin | null {
-  if (!pendingLogin) {
+  if (!pendingLogin || pendingLogin.settled) {
     return null
   }
   return now - pendingLogin.startedAt < PIN_WINDOW_MS ? pendingLogin : null
@@ -107,6 +138,9 @@ export function startPendingLogin(
     certSkippedPin: false,
     startedAt: Date.now(),
     pinReady,
+    settled: false,
+    result: null,
+    error: undefined,
   }
 
   const onPin = (pin: string) => {
@@ -131,6 +165,17 @@ export function startPendingLogin(
     onPin,
     onWaitingBiometric: onBiometric,
   })
+  promise.then(
+    (result) => {
+      pending.result = result
+      pending.settled = true
+      log.info('login.complete', { mid: result.mid })
+    },
+    (error) => {
+      pending.error = error
+      pending.settled = true
+    },
+  )
   promise.catch(() => {
     // Swallow here only to prevent an unhandled-rejection warning for a
     // login nobody completes; the real error still surfaces to whoever
@@ -167,8 +212,9 @@ export async function waitForPin(
 }
 
 /**
- * Await the in-flight login to completion and clear it either way. Never
- * touches credentials on the failure path — `runPwlessLogin` owns that.
+ * Await the in-flight login to completion. The record stays registered as
+ * settled (never reused by `login`, still readable). Never touches
+ * credentials on the failure path — `runPwlessLogin` owns that.
  *
  * @param pending - The pending login to finish.
  * @returns The logged-in profile.
@@ -177,11 +223,54 @@ export async function waitForPin(
 export async function finishPendingLogin(
   pending: PendingLogin,
 ): Promise<PwlessLoginResult> {
+  return await pending.promise
+}
+
+/** What a bounded `login_complete` wait can end with. */
+export type LoginWaitOutcome =
+  | { kind: 'completed'; result: PwlessLoginResult }
+  | { kind: 'failed'; error: unknown }
+  | { kind: 'waiting' }
+
+/**
+ * Wait for the in-flight login to settle, but only up to `timeoutMs` — a
+ * still-running login is reported as `waiting` so the caller can return and
+ * be called again, instead of holding a tool call open for the human.
+ * Reading the outcome consumes nothing: a settled record answers the same
+ * way on every call.
+ *
+ * @param pending - The pending login to wait on.
+ * @param timeoutMs - Maximum time to wait.
+ * @returns The outcome: completed, failed, or still waiting.
+ */
+export async function awaitPendingLogin(
+  pending: PendingLogin,
+  timeoutMs: number,
+): Promise<LoginWaitOutcome> {
+  const settledOutcome = (): LoginWaitOutcome | null => {
+    if (!pending.settled) {
+      return null
+    }
+    return pending.result
+      ? { kind: 'completed', result: pending.result }
+      : { kind: 'failed', error: pending.error }
+  }
+  const early = settledOutcome()
+  if (early) {
+    return early
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const result = await pending.promise
-    log.info('login.complete', { mid: result.mid })
-    return result
+    return await Promise.race([
+      pending.promise.then(
+        (result): LoginWaitOutcome => ({ kind: 'completed', result }),
+        (error): LoginWaitOutcome => ({ kind: 'failed', error }),
+      ),
+      new Promise<LoginWaitOutcome>((resolve) => {
+        timer = setTimeout(() => resolve({ kind: 'waiting' }), timeoutMs)
+      }),
+    ])
   } finally {
-    pendingLogin = null
+    clearTimeout(timer)
   }
 }

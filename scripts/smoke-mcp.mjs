@@ -87,7 +87,7 @@ async function verifyEra(expectedEra, supportsApps = false) {
     const toolList = await client.listTools()
     const { tools } = toolList
     // Upstream 0.5.0 ships 41 tools; this fork adds login_qr,
-    // login_qr_complete, and find_contact_by_id.
+    // login_qr_status, and find_contact_by_id.
     const expectedTools = 44
     if (tools.length !== expectedTools) {
       throw new Error(
@@ -95,7 +95,7 @@ async function verifyEra(expectedEra, supportsApps = false) {
       )
     }
     const names = new Set(tools.map((tool) => tool.name))
-    for (const required of ['login_qr', 'login_qr_complete', 'find_contact_by_id']) {
+    for (const required of ['login_qr', 'login_qr_status', 'find_contact_by_id']) {
       if (!names.has(required)) {
         throw new Error(`tools/list is missing fork tool ${required}`)
       }
