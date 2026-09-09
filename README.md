@@ -507,7 +507,7 @@ fake success.
 | Tool | Does |
 | --- | --- |
 | `login` / `login_complete` | Passwordless secondary-device login (phone number + PIN). See below. Callable without an existing session. |
-| `login_qr` / `login_qr_complete` | QR-code secondary-device login (LINE ForSecure) — **no phone number needed**, for accounts that have none. See below. Callable without an existing session. |
+| `login_qr` / `login_qr_status` | QR-code secondary-device login (LINE ForSecure) — **no phone number needed**, for accounts that have none. See below. Callable without an existing session. |
 
 ---
 
@@ -541,9 +541,11 @@ depends on your MCP client:
 
 - **Clients without it (e.g. Claude Desktop today)** — two calls. `login` (with your
   phone + region) returns the PIN in its result; enter it in LINE on your primary
-  phone and approve the device; then call `login_complete`, which blocks until the
-  phone confirms. The agent should call `login_complete` immediately — it does the
-  waiting, so there is nothing for you to report back.
+  phone and approve the device; meanwhile the agent calls `login_complete`, which
+  checks for up to ~20 seconds per call and says "still in progress" until the phone
+  confirms, then returns your profile. The agent keeps calling it — there is nothing
+  for you to report back. No single call ever waits on you: MCP hosts cancel tool
+  calls held open for minutes, and a cancelled call is how a login result gets lost.
 
 - **From a terminal** — `npx @rikaidev/yomi login` runs the whole flow on stdout, PIN and
   all. Always available as a fallback.
@@ -569,9 +571,14 @@ absent because LINE 26+ expires such sessions server-side.
 
 - **From any MCP client** — `login_qr` returns the QR as a scannable PNG image plus
   the raw URL; scan it with LINE on your primary phone and confirm the new device.
-  `login_qr_complete` does the waiting (call it immediately); if LINE asks for a
-  PIN on the phone it returns early with that PIN — enter it, then call
-  `login_qr_complete` again.
+  The agent then polls `login_qr_status` every few seconds. It returns immediately
+  with one of `waiting_for_scan`, `scan_confirmed`, `pin` (the PIN digits — the agent
+  shows them, you type them on the phone), `finishing`, `logged_in`, or `failed`.
+  The PIN is repeated on every poll until LINE accepts it, so a poll whose result the
+  client never received costs nothing. No tool call ever stays open while you scan —
+  that is deliberate: MCP hosts cancel long tool calls, and a PIN carried by a
+  cancelled call is a PIN nobody sees. Calling `login_qr` again while an attempt is
+  live reuses it (no second code).
 
 - **From a terminal** — `npx @rikaidev/yomi login-qr` renders the QR code in the
   terminal and runs the whole flow on stdout, PIN and all.
